@@ -1,0 +1,27 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# === Banco de dados (NUNCA commitar — contém dados reais) ===
+*.db
+*.db-wal
+*.db-shm
+
+# === Variáveis de ambiente ===
+.env
+.env.*
+!.env.example
+
+# === Sistema operacional ===
+.DS_Store
+Thumbs.db
+
+# === IDEs ===
+.vscode/
+.idea/
+
+# === Cross-posting ===
+video-organizer/queue/
+video-organizer/ready/

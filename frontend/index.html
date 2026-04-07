@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Achadinhos do Momento ✨</title>
+  <meta name="description" content="Os melhores achados do momento. Produtos incríveis na Shopee e Mercado Livre." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=DM+Sans:wght@400;500;700&display=swap"
+    rel="stylesheet" />
+
+  <style>
+    /* ══════════════════════════════════════════
+       RESET & TOKENS
+    ══════════════════════════════════════════ */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #060609;
+      --surface: rgba(25, 25, 35, 0.4);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent1: #ff3e6c;
+      --accent2: #ffb800;
+      --accent3: #00e5a0;
+      --text: #fcfcfc;
+      --muted: #9494a3;
+      --radius: 20px;
+      --font-head: 'Syne', sans-serif;
+      --font-body: 'DM Sans', sans-serif;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 20px 60px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Fundo Animado Orgânico */
+    body::before,
+    body::after {
+      content: '';
+      position: absolute;
+      width: 60vw;
+      height: 60vw;
+      min-width: 400px;
+      min-height: 400px;
+      border-radius: 50%;
+      filter: blur(100px);
+      z-index: -1;
+      animation: float 14s ease-in-out infinite alternate;
+      opacity: 0.15;
+    }
+
+    body::before {
+      background: var(--accent1);
+      top: -10%;
+      left: -10%;
+    }
+
+    body::after {
+      background: var(--accent3);
+      bottom: -10%;
+      right: -10%;
+      animation-delay: -7s;
+    }
+
+    /* ══════════════════════════════════════════
+       HEADER / PERFIL
+    ══════════════════════════════════════════ */
+    .profile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 64px 0 40px;
+      animation: fadeDown 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .avatar-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      padding: 4px;
+      /* Espaço para o anel gradiente */
+      background: conic-gradient(var(--accent1), var(--accent2), var(--accent3), var(--accent1));
+      animation: spin 6s linear infinite;
+    }
+
+    .avatar {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.8rem;
+      /* Contra-rotação para o emoji não girar */
+      animation: spin-reverse 6s linear infinite;
+    }
+
+    .handle {
+      font-family: var(--font-head);
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff, #d4d4d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .bio {
+      font-size: 0.95rem;
+      color: var(--muted);
+      text-align: center;
+      max-width: 300px;
+      line-height: 1.6;
+    }
+
+    .badges {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 4px;
+    }
+
+    .badge-pill {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    /* ══════════════════════════════════════════
+       LINKS & CARDS (Glassmorphism)
+    ══════════════════════════════════════════ */
+    .links-section {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0 4px;
+      margin: 12px 0 4px;
+    }
+
+    .link-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      text-decoration: none;
+      color: var(--text);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation-delay: var(--delay, 0s);
+    }
+
+    .link-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--card-accent, var(--accent1));
+      border-radius: 99px 0 0 99px;
+      transition: width 0.2s ease;
+    }
+
+    .link-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at right, var(--card-glow, rgba(255, 255, 255, 0.05)), transparent 60%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: -1;
+    }
+
+    @media (hover: hover) {
+      .link-card:hover {
+        transform: translateY(-4px) scale(1.015);
+        border-color: rgba(255, 255, 255, 0.2);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      }
+
+      .link-card:hover::before {
+        width: 6px;
+      }
+
+      .link-card:hover::after {
+        opacity: 1;
+      }
+
+      .link-card:hover .link-arrow {
+        transform: translateX(6px);
+        color: var(--text);
+      }
+    }
+
+    .link-card:active {
+      transform: scale(0.98);
+    }
+
+    .link-emoji {
+      font-size: 1.8rem;
+      flex-shrink: 0;
+      line-height: 1;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+    }
+
+    .link-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .link-title {
+      font-family: var(--font-head);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .link-sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.2;
+    }
+
+    .link-badge {
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+
+    .link-arrow {
+      font-size: 1.2rem;
+      color: var(--muted);
+      flex-shrink: 0;
+      transition: all 0.3s ease;
+    }
+
+    /* ══════════════════════════════════════════
+       SKELETON LOADING (Melhorado)
+    ══════════════════════════════════════════ */
+    .skeleton-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      animation: shimmer 1.5s infinite linear;
+      background: linear-gradient(90deg, var(--surface) 0%, rgba(255, 255, 255, 0.06) 50%, var(--surface) 100%);
+      background-size: 200% 100%;
+    }
+
+    .skel-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .skel-text {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .skel-line {
+      height: 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .skel-title {
+      width: 70%;
+      height: 16px;
+    }
+
+    .skel-sub {
+      width: 40%;
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 200% 0;
+      }
+
+      100% {
+        background-position: -200% 0;
+      }
+    }
+
+    /* ══════════════════════════════════════════
+       ESTADO DE ERRO
+    ══════════════════════════════════════════ */
+    .error-box {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px dashed var(--border);
+    }
+
+    .error-box span {
+      font-size: 2.5rem;
+      display: block;
+      margin-bottom: 16px;
+    }
+
+    /* ══════════════════════════════════════════
+       FOOTER
+    ══════════════════════════════════════════ */
+    .footer {
+      margin-top: 56px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+      letter-spacing: 0.05em;
+      opacity: 0.6;
+      animation: fadeUp 1s ease 1s both;
+    }
+
+    /* ══════════════════════════════════════════
+       ANIMAÇÕES GERAIS
+    ══════════════════════════════════════════ */
+    @keyframes fadeDown {
+      from {
+        opacity: 0;
+        transform: translateY(-24px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(24px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes spin-reverse {
+      to {
+        transform: rotate(-360deg);
+      }
+    }
+
+    @keyframes float {
+      0% {
+        transform: translate(0, 0);
+      }
+
+      100% {
+        transform: translate(10%, 15%);
+      }
+    }
+
+    /* ══════════════════════════════════════════
+       TOAST NOTIFICATION
+    ══════════════════════════════════════════ */
+    .toast {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translate(-50%, 100px);
+      background: rgba(25, 25, 35, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 500;
+      font-size: 0.85rem;
+      padding: 12px 24px;
+      border-radius: 99px;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 999;
+      white-space: nowrap;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .toast.show {
+      transform: translate(-50%, 0);
+    }
+  </style>
+</head>
+
+<body>
+
+  <header class="profile">
+    <div class="avatar-wrap">
+      <div class="avatar">🛍️</div>
+    </div>
+    <h1 class="handle">@achadinhosdomomento</h1>
+    <p class="bio">Os melhores preços do dia na Shopee e Mercado Livre. Atualizado diariamente para você economizar! ✨
+    </p>
+    <div class="badges">
+      <span class="badge-pill">🛍️ Shopee</span>
+      <span class="badge-pill">⚡ Mercado Livre</span>
+      <span class="badge-pill">🔄 Atualizado hoje</span>
+    </div>
+  </header>
+
+  <main class="links-section" id="links-container">
+    <div class="skeleton-card">
+      <div class="skel-icon"></div>
+      <div class="skel-text">
+        <div class="skel-line skel-title"></div>
+        <div class="skel-line skel-sub"></div>
+      </div>
+    </div>
+    <div class="skeleton-card" style="opacity: 0.8;">
+      <div class="skel-icon"></div>
+      <div class="skel-text">
+        <div class="skel-line skel-title"></div>
+        <div class="skel-line skel-sub"></div>
+      </div>
+    </div>
+    <div class="skeleton-card" style="opacity: 0.5;">
+      <div class="skel-icon"></div>
+      <div class="skel-text">
+        <div class="skel-line skel-title"></div>
+        <div class="skel-line skel-sub"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">Links de afiliado · Achadinhos do Momento © 2026</footer>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // 🔧 CONFIGURE AQUI: URL da sua API no Render
+    const API_BASE = "https://SUA-API.onrender.com";
+
+    // Paleta de cores para os cards (cíclico)
+    const PALETTE = [
+      { accent: "#ff3e6c", glow: "rgba(255,62,108,0.15)" },
+      { accent: "#ffb800", glow: "rgba(255,184,0,0.15)" },
+      { accent: "#00e5a0", glow: "rgba(0,229,160,0.15)" },
+      { accent: "#818cf8", glow: "rgba(129,140,248,0.15)" },
+      { accent: "#fb923c", glow: "rgba(251,146,60,0.15)" },
+    ];
+
+    function showToast(msg, duration = 2500) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), duration);
+    }
+
+    function buildCard(link, index) {
+      const color = PALETTE[index % PALETTE.length];
+      const card = document.createElement("a");
+      card.className = "link-card";
+
+      card.href = link.url || "#";
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+      card.setAttribute("aria-label", `Oferta: ${link.title}`);
+
+      card.style.setProperty("--delay", `${0.05 + index * 0.08}s`);
+      card.style.setProperty("--card-accent", color.accent);
+      card.style.setProperty("--card-glow", color.glow);
+
+      card.innerHTML = `
+        <span class="link-emoji" aria-hidden="true">${link.emoji || "🛍️"}</span>
+        <div class="link-info">
+          <div class="link-title">${link.title}</div>
+          <div class="link-sub">Clique e aproveite a oferta</div>
+        </div>
+        ${link.badge ? `<span class="link-badge" style="background:${link.badge_color}22;color:${link.badge_color}">${link.badge}</span>` : ""}
+        <span class="link-arrow" aria-hidden="true">→</span>
+      `;
+
+
+      card.addEventListener("click", () => {
+        if (link.id) {
+          navigator.sendBeacon(`${API_BASE}/links/${link.id}/click`);
+        }
+        showToast("Redirecionando… ✨");
+      });
+
+      return card;
+    }
+
+    async function loadLinks() {
+      const container = document.getElementById("links-container");
+      try {
+        const res = await fetch(`${API_BASE}/links`);
+        const links = await res.json();
+
+        container.innerHTML = "";
+
+        if (!links.length) {
+          container.innerHTML = `<div class="error-box"><span>😴</span>Nenhum link disponível no momento.<br>Volte em breve para novas ofertas!</div>`;
+          return;
+        }
+
+        const label = document.createElement("p");
+        label.className = "section-label";
+        label.textContent = "✦ Ofertas do Dia";
+        container.appendChild(label);
+
+        links.forEach((link, i) => container.appendChild(buildCard(link, i)));
+
+      } catch (err) {
+        container.innerHTML = `
+          <div class="error-box">
+            <span>⚠️</span>
+            Não foi possível carregar os links.<br>
+            Tente atualizar a página em instantes.
+          </div>`;
+        console.error("Erro ao carregar links:", err);
+      }
+    }
+
+
+    document.addEventListener("DOMContentLoaded", loadLinks);
+  </script>
+</body>
+
+</html>
