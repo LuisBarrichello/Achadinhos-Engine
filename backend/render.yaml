@@ -2,13 +2,27 @@ services:
   - type: web
     name: achadinhos-api
     runtime: python
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      # [FIX] DATABASE_URL estava ausente — sem ele o app usa sqlite local
-      # (ephemeral, dados perdidos a cada redeploy).
+      # Banco persistente em disco (não ephemeral)
       - key: DATABASE_URL
         value: sqlite:////data/achadinhos.db
+
+      # [IMG] Pasta de imagens no mesmo disco persistente
+      - key: IMAGES_DIR
+        value: /data/images
+      - key: IMAGES_URL
+        value: /static/images
+      - key: MAX_IMAGE_MB
+        value: "5"
+
+      # CORS — defina com o domínio real do seu frontend
+      - key: FRONTEND_ORIGIN
+        sync: false   # ex: https://achadinhos.vercel.app
+
+      # Secrets — configure via dashboard do Render, nunca commite
       - key: WEBHOOK_VERIFY_TOKEN
         sync: false
       - key: META_APP_SECRET
@@ -17,10 +31,8 @@ services:
         sync: false
       - key: ADMIN_SECRET
         sync: false
-      # [FIX] CORS: origem do frontend para não usar allow_origins=["*"]
-      - key: FRONTEND_ORIGIN
-        sync: false   # ex: https://achadinhos.vercel.app
+
     disk:
-      name: sqlite-data
+      name: sqlite-and-images
       mountPath: /data
-      sizeGB: 1
+      sizeGB: 2        # 1 GB banco + 1 GB imagens

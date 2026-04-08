@@ -1,27 +1,36 @@
-# === Python ===
+# ── Secrets ──────────────────────────────────
+.env
+*.env
+
+# ── Python ───────────────────────────────────
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
 .venv/
+env/
 *.egg-info/
+dist/
+build/
+.pytest_cache/
 
-# === Banco de dados (NUNCA commitar — contém dados reais) ===
+# ── Banco de dados ────────────────────────────
 *.db
-*.db-wal
 *.db-shm
+*.db-wal
 
-# === Variáveis de ambiente ===
-.env
-.env.*
-!.env.example
+# ── Imagens enviadas (não versionar uploads) ──
+backend/static/images/*
+!backend/static/images/.gitkeep
 
-# === Sistema operacional ===
+# ── Vídeos raw ────────────────────────────────
+video-organizer/raw/
+video-organizer/organized/
+
+# ── OS ────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# === IDEs ===
-.vscode/
 .idea/
-
-# === Cross-posting ===
-video-organizer/queue/
-video-organizer/ready/

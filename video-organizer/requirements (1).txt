@@ -1,7 +1,0 @@
-# [FIX] Este arquivo não existia — o organizer não tinha suas dependências declaradas.
-# organizer.py usa: Pillow (opcional mas referenciada)
-# ffmpeg deve ser instalado no sistema operacional (não via pip):
-#   macOS : brew install ffmpeg
-#   Linux : sudo apt install ffmpeg
-#   Windows: https://ffmpeg.org/download.html
-Pillow==10.3.0
