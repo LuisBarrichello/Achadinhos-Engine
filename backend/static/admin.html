@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Admin — Achadinhos do Momento</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Geist', 'sans-serif'], mono: ['IBM Plex Mono', 'monospace'] },
+        colors: {
+          zinc: { 925: '#111113', 950: '#0a0a0b' },
+          violet: { 400: '#a78bfa', 500: '#8b5cf6' },
+        }
+      }
+    }
+  }
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body { background: #0a0a0b; color: #e4e4e7; font-family: 'Geist', sans-serif; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 99px; }
+
+  /* ── Auth overlay ── */
+  #auth-overlay {
+    position: fixed; inset: 0; background: #0a0a0b;
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  #auth-overlay.hidden { display: none; }
+
+  /* ── Inputs ── */
+  .field {
+    width: 100%; background: #111113; border: 1px solid #27272a;
+    color: #e4e4e7; padding: 8px 12px; border-radius: 8px;
+    font-size: 13px; font-family: inherit; outline: none;
+    transition: border-color 0.15s;
+  }
+  .field:focus { border-color: #7c3aed; }
+  .field::placeholder { color: #52525b; }
+
+  select.field option { background: #111113; }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    background: #7c3aed; color: white; border: none;
+    padding: 8px 16px; border-radius: 8px; font-size: 13px;
+    font-family: inherit; font-weight: 500; cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-primary:hover { background: #6d28d9; }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { background: #3f3f46; color: #71717a; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent; color: #a1a1aa; border: 1px solid #27272a;
+    padding: 6px 12px; border-radius: 8px; font-size: 12px;
+    font-family: inherit; cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-ghost:hover { background: #18181b; color: #e4e4e7; border-color: #3f3f46; }
+
+  .btn-danger {
+    background: transparent; color: #f87171; border: 1px solid #3f1212;
+    padding: 6px 12px; border-radius: 8px; font-size: 12px;
+    font-family: inherit; cursor: pointer; transition: background 0.15s;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-danger:hover { background: #1f0707; }
+
+  /* ── Cards ── */
+  .card {
+    background: #111113; border: 1px solid #1c1c1f;
+    border-radius: 12px; overflow: hidden;
+  }
+  .card-header {
+    padding: 14px 16px; border-bottom: 1px solid #1c1c1f;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  /* ── Link rows ── */
+  .link-row {
+    display: grid; gap: 12px; padding: 14px 16px;
+    border-bottom: 1px solid #1c1c1f; align-items: center;
+    grid-template-columns: 48px 1fr auto;
+    transition: background 0.1s;
+  }
+  .link-row:last-child { border-bottom: none; }
+  .link-row:hover { background: #0f0f11; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 10px 16px; border-radius: 10px;
+    font-size: 13px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+    transform: translateY(80px); opacity: 0;
+    transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), opacity 0.3s;
+    z-index: 999; pointer-events: none;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.success { background: #14532d; border: 1px solid #166534; color: #86efac; }
+  #toast.error   { background: #4c0519; border: 1px solid #9f1239; color: #fda4af; }
+  #toast.info    { background: #1e1b4b; border: 1px solid #3730a3; color: #a5b4fc; }
+
+  /* ── Modal ── */
+  #modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  #modal-overlay.open { opacity: 1; pointer-events: auto; }
+  #modal-box {
+    background: #111113; border: 1px solid #27272a; border-radius: 16px;
+    width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+    transform: scale(0.95); transition: transform 0.2s;
+  }
+  #modal-overlay.open #modal-box { transform: scale(1); }
+
+  /* ── Image upload drop zone ── */
+  .drop-zone {
+    border: 2px dashed #27272a; border-radius: 8px;
+    padding: 24px; text-align: center; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: #7c3aed; background: rgba(124,58,237,0.05);
+  }
+
+  /* ── Badge pill ── */
+  .badge-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 99px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* ── Skeleton ── */
+  @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+  .skeleton {
+    background: linear-gradient(90deg, #18181b 25%, #222225 50%, #18181b 75%);
+    background-size: 600px 100%; animation: shimmer 1.4s infinite;
+    border-radius: 6px;
+  }
+
+  /* ── Sidebar nav ── */
+  .nav-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    border-radius: 8px; font-size: 13px; color: #71717a;
+    cursor: pointer; transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
+  }
+  .nav-item:hover { background: #18181b; color: #e4e4e7; }
+  .nav-item.active { background: #18181b; color: #e4e4e7; }
+
+  /* ── Upload progress ── */
+  .progress-bar { height: 3px; background: #18181b; border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #7c3aed; width: 0; transition: width 0.3s; border-radius: 99px; }
+
+  /* ── Color input ── */
+  input[type="color"] { -webkit-appearance: none; padding: 0; border: none; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; background: transparent; }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+
+  /* ── Fade in ── */
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .fade-in { animation: fadeIn 0.3s ease forwards; }
+
+  /* ── Stats ── */
+  .stat-card {
+    background: #111113; border: 1px solid #1c1c1f; border-radius: 12px;
+    padding: 16px 20px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════ AUTH OVERLAY ══════════ -->
+<div id="auth-overlay">
+  <div style="width:100%;max-width:380px;padding:24px">
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="width:44px;height:44px;background:#18181b;border:1px solid #27272a;border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:20px">🛍️</div>
+      <h1 style="font-size:20px;font-weight:600;margin:0 0 6px">Achadinhos Admin</h1>
+      <p style="color:#71717a;font-size:13px;margin:0">Insira sua senha para continuar</p>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">API Base URL</label>
+      <input id="input-api-base" class="field" type="text" value="http://localhost:8000" placeholder="https://sua-api.onrender.com"/>
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Admin Secret</label>
+      <input id="input-secret" class="field" type="password" placeholder="••••••••••••" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <button class="btn-primary" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Entrar no Painel
+    </button>
+    <p id="auth-error" style="color:#f87171;font-size:12px;text-align:center;margin-top:12px;display:none"></p>
+  </div>
+</div>
+
+<!-- ══════════ SHELL ══════════ -->
+<div id="app-shell" class="hidden" style="display:none;min-height:100vh">
+
+  <!-- TOP BAR -->
+  <header style="position:sticky;top:0;z-index:40;background:rgba(10,10,11,0.8);backdrop-filter:blur(12px);border-bottom:1px solid #1c1c1f;height:52px;display:flex;align-items:center;padding:0 20px;gap:12px">
+    <div style="display:flex;align-items:center;gap:8px;flex:1">
+      <span style="font-size:16px">🛍️</span>
+      <span style="font-size:13px;font-weight:600">Achadinhos</span>
+      <span style="color:#27272a;margin:0 4px">/</span>
+      <span style="font-size:13px;color:#71717a" id="page-title">Ofertas</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="api-url-display" style="font-size:11px;color:#52525b;font-family:'IBM Plex Mono',monospace"></span>
+      <button class="btn-ghost" onclick="doLogout()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sair
+      </button>
+    </div>
+  </header>
+
+  <!-- CONTENT -->
+  <div style="max-width:960px;margin:0 auto;padding:28px 20px">
+
+    <!-- STATS ROW -->
+    <div id="stats-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+      <div class="stat-card">
+        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Total de Ofertas</div>
+        <div id="stat-total" class="skeleton" style="height:28px;width:60px"></div>
+      </div>
+      <div class="stat-card">
+        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Cliques Totais</div>
+        <div id="stat-clicks" class="skeleton" style="height:28px;width:60px"></div>
+      </div>
+      <div class="stat-card">
+        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Com Imagem</div>
+        <div id="stat-images" class="skeleton" style="height:28px;width:60px"></div>
+      </div>
+    </div>
+
+    <!-- MAIN CARD -->
+    <div class="card">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:13px;font-weight:600">Ofertas Cadastradas</span>
+          <span id="badge-count" style="background:#1c1c1f;color:#71717a;font-size:11px;padding:2px 8px;border-radius:99px"></span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-ghost" onclick="loadLinks()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Atualizar
+          </button>
+          <button class="btn-primary" onclick="openModal()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nova Oferta
+          </button>
+        </div>
+      </div>
+
+      <!-- SEARCH -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1c1c1f">
+        <input id="search-input" class="field" type="text" placeholder="Buscar por título…" oninput="filterLinks()" style="max-width:320px"/>
+      </div>
+
+      <!-- LINKS LIST -->
+      <div id="links-list">
+        <!-- skeletons -->
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:200px"></div><div class="skeleton" style="height:11px;width:140px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:160px"></div><div class="skeleton" style="height:11px;width:120px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:220px"></div><div class="skeleton" style="height:11px;width:160px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /shell -->
+
+<!-- ══════════ MODAL CRIAR/EDITAR ══════════ -->
+<div id="modal-overlay" onclick="closeModalOnBg(event)">
+  <div id="modal-box">
+    <div style="padding:20px 20px 0;display:flex;align-items:center;justify-content:space-between">
+      <h2 id="modal-title" style="font-size:15px;font-weight:600;margin:0">Nova Oferta</h2>
+      <button onclick="closeModal()" style="background:none;border:none;color:#71717a;cursor:pointer;padding:4px;border-radius:6px;display:flex" onmouseover="this.style.color='#e4e4e7'" onmouseout="this.style.color='#71717a'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+      <input type="hidden" id="edit-id"/>
+
+      <div style="display:grid;grid-template-columns:1fr 80px;gap:12px">
+        <div>
+          <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Título <span style="color:#f87171">*</span></label>
+          <input id="f-title" class="field" type="text" placeholder="Ex: Tênis Nike Air Max 90% OFF"/>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Emoji</label>
+          <input id="f-emoji" class="field" type="text" placeholder="🛍️" style="text-align:center;font-size:18px"/>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL de Afiliado <span style="color:#f87171">*</span></label>
+        <input id="f-url" class="field" type="url" placeholder="https://shopee.com.br/..."/>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 56px;gap:12px;align-items:end">
+        <div>
+          <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Badge</label>
+          <input id="f-badge" class="field" type="text" placeholder="OFERTA, HOT, TOP…" style="text-transform:uppercase"/>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Cor do Badge</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input id="f-badge-color-pick" type="color" value="#e11d48" onchange="document.getElementById('f-badge-color').value=this.value"/>
+            <input id="f-badge-color" class="field" type="text" value="#e11d48" style="font-family:'IBM Plex Mono',monospace;font-size:12px" oninput="syncColorPicker()"/>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Ordem</label>
+          <input id="f-order" class="field" type="number" value="10" min="0"/>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL da Imagem <span style="color:#52525b">(opcional)</span></label>
+        <input id="f-image-url" class="field" type="url" placeholder="https://… (ou use o upload após salvar)"/>
+      </div>
+
+      <div id="modal-error" style="background:#4c0519;border:1px solid #9f1239;color:#fda4af;padding:8px 12px;border-radius:8px;font-size:12px;display:none"></div>
+    </div>
+    <div style="padding:0 20px 20px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button id="btn-save" class="btn-primary" onclick="saveLink()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        Salvar Oferta
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TOAST ══════════ -->
+<div id="toast"></div>
+
+<!-- ══════════ JAVASCRIPT ══════════ -->
+<script>
+// ── State ─────────────────────────────────────────
+let API_BASE  = '';
+let ADMIN_KEY = '';
+let allLinks  = [];
+
+// ── Auth ──────────────────────────────────────────
+async function doLogin() {
+  const base   = document.getElementById('input-api-base').value.trim().replace(/\/$/, '');
+  const secret = document.getElementById('input-secret').value.trim();
+  const errEl  = document.getElementById('auth-error');
+
+  if (!base || !secret) {
+    errEl.textContent = 'Preencha todos os campos.';
+    errEl.style.display = 'block'; return;
+  }
+
+  errEl.style.display = 'none';
+
+  try {
+    const res = await fetch(`${base}/links`, { headers: { 'x-admin-secret': secret } });
+    if (res.status === 403) {
+      errEl.textContent = '❌ Senha incorreta (403 Forbidden).';
+      errEl.style.display = 'block'; return;
+    }
+    // 200 or any non-403 → login ok
+    API_BASE  = base;
+    ADMIN_KEY = secret;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('app-shell').style.display = 'block';
+    document.getElementById('api-url-display').textContent = base;
+    allLinks = await res.json();
+    renderLinks(allLinks);
+    updateStats(allLinks);
+  } catch (e) {
+    errEl.textContent = `Não foi possível conectar: ${e.message}`;
+    errEl.style.display = 'block';
+  }
+}
+
+function doLogout() {
+  API_BASE = ''; ADMIN_KEY = ''; allLinks = [];
+  document.getElementById('auth-overlay').classList.remove('hidden');
+  document.getElementById('app-shell').style.display = 'none';
+  document.getElementById('input-secret').value = '';
+}
+
+// ── API helpers ───────────────────────────────────
+const headers = (extra={}) => ({ 'Content-Type':'application/json', 'x-admin-secret': ADMIN_KEY, ...extra });
+
+async function apiFetch(path, opts={}) {
+  const res = await fetch(API_BASE + path, { ...opts, headers: headers(opts.headers || {}) });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+// ── Load links ────────────────────────────────────
+async function loadLinks() {
+  try {
+    allLinks = await apiFetch('/links');
+    renderLinks(allLinks);
+    updateStats(allLinks);
+    toast('Ofertas atualizadas', 'success');
+  } catch(e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Stats ─────────────────────────────────────────
+function updateStats(links) {
+  document.getElementById('stat-total').textContent  = links.length;
+  document.getElementById('stat-total').className    = 'fade-in';
+  document.getElementById('stat-clicks').textContent = links.reduce((a,l)=>a+l.clicks,0).toLocaleString('pt-BR');
+  document.getElementById('stat-clicks').className   = 'fade-in';
+  document.getElementById('stat-images').textContent = links.filter(l=>l.image_url).length;
+  document.getElementById('stat-images').className   = 'fade-in';
+  document.getElementById('badge-count').textContent = links.length;
+}
+
+function filterLinks() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  renderLinks(allLinks.filter(l => l.title.toLowerCase().includes(q)));
+}
+
+// ── Render ────────────────────────────────────────
+function renderLinks(links) {
+  const list = document.getElementById('links-list');
+  if (links.length === 0) {
+    list.innerHTML = `<div style="padding:40px;text-align:center;color:#52525b;font-size:13px">Nenhuma oferta encontrada</div>`;
+    return;
+  }
+  list.innerHTML = links.map(link => buildRow(link)).join('');
+}
+
+function buildRow(link) {
+  const badgeHtml = link.badge
+    ? `<span class="badge-pill" style="background:${link.badge_color}22;color:${link.badge_color};border:1px solid ${link.badge_color}44">${esc(link.badge)}</span>`
+    : '';
+
+  const imgPreview = link.image_url
+    ? `<img src="${esc(link.image_url)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #27272a" onerror="this.style.display='none';this.nextSibling.style.display='flex'"  /><div style="display:none;width:44px;height:44px;background:#18181b;border-radius:8px;align-items:center;justify-content:center;font-size:18px">${esc(link.emoji||'🛍️')}</div>`
+    : `<div style="width:44px;height:44px;background:#18181b;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #1c1c1f">${esc(link.emoji||'🛍️')}</div>`;
+
+  return `<div class="link-row fade-in">
+    <div style="position:relative">${imgPreview}</div>
+    <div style="min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px">${esc(link.title)}</span>
+        ${badgeHtml}
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <a href="${esc(link.url)}" target="_blank" style="color:#52525b;font-size:11px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;text-decoration:none" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#52525b'">${esc(link.url.replace(/^https?:\/\//,''))}</a>
+        <span style="color:#3f3f46;font-size:11px">•</span>
+        <span style="color:#52525b;font-size:11px">${link.clicks} cliques</span>
+        <span style="color:#3f3f46;font-size:11px">•</span>
+        <span style="color:#52525b;font-size:11px">ordem ${link.order}</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
+      <div style="display:flex;gap:6px">
+        <button class="btn-ghost" onclick="openEditModal(${link.id})" title="Editar">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Editar
+        </button>
+        <button class="btn-danger" onclick="deleteLink(${link.id},'${esc(link.title).replace(/'/g,"\\'")}')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Excluir
+        </button>
+      </div>
+      <label class="btn-ghost" style="cursor:pointer;font-size:11px" title="Upload de imagem">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Imagem
+        <input type="file" accept="image/*" style="display:none" onchange="uploadImage(${link.id}, this)"/>
+      </label>
+    </div>
+  </div>`;
+}
+
+// ── Image Upload ──────────────────────────────────
+async function uploadImage(linkId, inputEl) {
+  if (!inputEl.files[0]) return;
+  const file    = inputEl.files[0];
+  const maxMb   = 5;
+  if (file.size > maxMb * 1024 * 1024) {
+    toast(`Imagem muito grande (máx ${maxMb}MB)`, 'error'); return;
+  }
+
+  toast('Enviando imagem…', 'info');
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const res = await fetch(`${API_BASE}/links/${linkId}/image`, {
+      method: 'POST',
+      headers: { 'x-admin-secret': ADMIN_KEY },
+      body: form
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const updated = await res.json();
+    // Update in local array
+    const idx = allLinks.findIndex(l => l.id === linkId);
+    if (idx >= 0) allLinks[idx] = updated;
+    filterLinks();
+    toast('Imagem enviada com sucesso ✓', 'success');
+  } catch(e) {
+    toast(`Erro no upload: ${e.message}`, 'error');
+  }
+}
+
+// ── Delete ────────────────────────────────────────
+async function deleteLink(id, title) {
+  if (!confirm(`Excluir "${title}"?\n\nEsta ação não pode ser desfeita.`)) return;
+  try {
+    await apiFetch(`/links/${id}`, { method: 'DELETE' });
+    allLinks = allLinks.filter(l => l.id !== id);
+    filterLinks();
+    updateStats(allLinks);
+    toast('Oferta excluída', 'success');
+  } catch(e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Modal ─────────────────────────────────────────
+function openModal() {
+  document.getElementById('modal-title').textContent = 'Nova Oferta';
+  document.getElementById('edit-id').value = '';
+  document.getElementById('f-title').value = '';
+  document.getElementById('f-url').value = '';
+  document.getElementById('f-emoji').value = '🛍️';
+  document.getElementById('f-badge').value = '';
+  document.getElementById('f-badge-color').value = '#e11d48';
+  document.getElementById('f-badge-color-pick').value = '#e11d48';
+  document.getElementById('f-order').value = '10';
+  document.getElementById('f-image-url').value = '';
+  document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('f-title').focus(), 200);
+}
+
+function openEditModal(id) {
+  const link = allLinks.find(l => l.id === id);
+  if (!link) return;
+  document.getElementById('modal-title').textContent = 'Editar Oferta';
+  document.getElementById('edit-id').value = id;
+  document.getElementById('f-title').value = link.title;
+  document.getElementById('f-url').value = link.url;
+  document.getElementById('f-emoji').value = link.emoji || '🛍️';
+  document.getElementById('f-badge').value = link.badge || '';
+  document.getElementById('f-badge-color').value = link.badge_color || '#e11d48';
+  document.getElementById('f-badge-color-pick').value = link.badge_color || '#e11d48';
+  document.getElementById('f-order').value = link.order;
+  document.getElementById('f-image-url').value = link.image_url || '';
+  document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+function closeModalOnBg(e) { if (e.target === document.getElementById('modal-overlay')) closeModal(); }
+
+function syncColorPicker() {
+  const val = document.getElementById('f-badge-color').value;
+  if (/^#[0-9A-Fa-f]{6}$/.test(val)) document.getElementById('f-badge-color-pick').value = val;
+}
+
+// ── Save Link ─────────────────────────────────────
+async function saveLink() {
+  const editId = document.getElementById('edit-id').value;
+  const title  = document.getElementById('f-title').value.trim();
+  const url    = document.getElementById('f-url').value.trim();
+  const errEl  = document.getElementById('modal-error');
+
+  errEl.style.display = 'none';
+  if (!title) { errEl.textContent = 'O título é obrigatório.'; errEl.style.display='block'; return; }
+  if (!url)   { errEl.textContent = 'A URL é obrigatória.'; errEl.style.display='block'; return; }
+  try { new URL(url); } catch { errEl.textContent = 'URL inválida.'; errEl.style.display='block'; return; }
+
+  const body = {
+    title,
+    url,
+    emoji:       document.getElementById('f-emoji').value || '🛍️',
+    badge:       document.getElementById('f-badge').value.toUpperCase() || null,
+    badge_color: document.getElementById('f-badge-color').value,
+    order:       parseInt(document.getElementById('f-order').value) || 0,
+    image_url:   document.getElementById('f-image-url').value || null,
+  };
+
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+
+  try {
+    let updated;
+    if (editId) {
+      updated = await apiFetch(`/links/${editId}`, { method:'PATCH', body: JSON.stringify(body) });
+      const idx = allLinks.findIndex(l => l.id === parseInt(editId));
+      if (idx >= 0) allLinks[idx] = updated;
+    } else {
+      updated = await apiFetch('/links', { method:'POST', body: JSON.stringify(body) });
+      allLinks.unshift(updated);
+    }
+    filterLinks();
+    updateStats(allLinks);
+    closeModal();
+    toast(editId ? 'Oferta atualizada ✓' : 'Oferta criada com sucesso ✓', 'success');
+  } catch(e) {
+    errEl.textContent = `Erro: ${e.message}`;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Salvar Oferta';
+  }
+}
+
+// ── Toast ──────────────────────────────────────────
+let toastTimer;
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  const icons = {
+    success: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+    error:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  };
+  el.innerHTML = (icons[type]||'') + msg;
+  el.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ el.className = type; }, 3000);
+}
+
+// ── XSS escape ────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── Keyboard shortcuts ────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); document.getElementById('search-input')?.focus(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='n') { e.preventDefault(); openModal(); }
+});
+</script>
+</body>
+</html>
