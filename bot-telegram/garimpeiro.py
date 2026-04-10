@@ -1,399 +1,542 @@
 """
 =============================================================
- Achadinhos do Momento — Bot Garimpeiro v2 (Autônomo)
- Background Worker 24/7 para Render Free Tier
+ Achadinhos do Momento — Bot Telegram "Garimpeiro"
+ Stack  : python-telegram-bot v21 + APScheduler + SQLite
+ Função : Garimpa ofertas de feeds RSS/APIs públicas,
+          injeta ID de afiliado e posta no canal do Telegram.
 =============================================================
 Fluxo:
-  APScheduler (a cada 30 min)
-    └─► fetch_rss_deals()          — lê feeds configurados
-          └─► filtra duplicatas    — via seen_ids.json
-                └─► send_telegram() — sendPhoto no canal
-                      └─► post_api_link() — POST /links na FastAPI
-
-Variáveis de ambiente obrigatórias:
-  TELEGRAM_BOT_TOKEN   — token do @BotFather
-  TELEGRAM_CHANNEL_ID  — @seucanal ou -100xxxxxxx
-  API_BASE_URL         — https://sua-api.onrender.com
-  ADMIN_SECRET         — mesmo valor de x-admin-secret
-
-Variáveis opcionais:
-  POLL_INTERVAL_MIN    — intervalo entre ciclos (padrão: 30)
-  MIN_DISCOUNT_PCT     — desconto mínimo para postar (padrão: 0)
-  SEEN_IDS_FILE        — caminho do arquivo de dedup (padrão: ./seen_ids.json)
-  RSS_FEEDS            — feeds separados por vírgula (sobrescreve padrão)
+  1. Scheduler dispara a cada N minutos
+  2. Garimpa ofertas de múltiplas fontes (RSS + Pelando)
+  3. Normaliza e filtra por desconto mínimo
+  4. Injeta link de afiliado via Regex
+  5. Formata mensagem com emoji e posta no canal
+  6. Registra no banco para não repostar duplicatas
 =============================================================
 """
 
 import asyncio
-import json
+import hashlib
 import logging
 import os
 import re
+import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
 import feedparser
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from dotenv import load_dotenv
+from telegram import Bot
+from telegram.constants import ParseMode
+from telegram.error import TelegramError
 
-load_dotenv()
-
-# ─── Logging ─────────────────────────────────────────────────
+# ─── Logging ────────────────────────────────────────────────
 logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(message)s",
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("garimpeiro")
 
-# ─── Config ──────────────────────────────────────────────────
-def _require(key: str) -> str:
-    val = os.getenv(key)
-    if not val:
-        raise RuntimeError(
-            f"❌ Variável de ambiente obrigatória não encontrada: {key}\n"
-            f"   Defina-a no painel do Render ou no arquivo .env"
+# ─── Config (variáveis de ambiente) ─────────────────────────
+BOT_TOKEN         = os.getenv("TELEGRAM_BOT_TOKEN", "")
+CHANNEL_ID        = os.getenv("TELEGRAM_CHANNEL_ID", "@achadinhosdomomento")
+SHOPEE_AFFILIATE_ID = os.getenv("SHOPEE_AFFILIATE_ID", "SEU_ID_SHOPEE")  # sub_id do programa
+ML_AFFILIATE_ID     = os.getenv("ML_AFFILIATE_ID",   "SEU_ID_ML")        # publisher_id do ML
+MIN_DISCOUNT_PCT  = int(os.getenv("MIN_DISCOUNT_PCT", "20"))  # só posta se desconto >= X%
+POLL_INTERVAL_MIN = int(os.getenv("POLL_INTERVAL_MIN", "30")) # intervalo do scheduler
+DB_PATH           = os.getenv("DB_PATH", "garimpeiro.db")
+
+
+# ══════════════════════════════════════════════════════════════
+# BANCO DE DADOS — evitar reposts
+# ══════════════════════════════════════════════════════════════
+
+def db_init():
+    conn = sqlite3.connect(DB_PATH)
+    # WAL: permite leituras concorrentes durante escritas.
+    # Sem isso, múltiplas threads verificando duplicatas simultaneamente
+    # geram "database is locked" quando o scheduler e um comando /garimpar
+    # manual coincidem.
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS posted_deals (
+            hash       TEXT PRIMARY KEY,
+            title      TEXT,
+            source     TEXT,
+            posted_at  TEXT
         )
-    return val
+    """)
+    conn.commit()
+    conn.close()
 
 
-BOT_TOKEN    = _require("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID   = _require("TELEGRAM_CHANNEL_ID")
-API_BASE_URL = _require("API_BASE_URL").rstrip("/")
-ADMIN_SECRET = _require("ADMIN_SECRET")
+def deal_already_posted(deal_hash: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    row  = conn.execute("SELECT 1 FROM posted_deals WHERE hash=?", (deal_hash,)).fetchone()
+    conn.close()
+    return row is not None
 
-POLL_INTERVAL_MIN = int(os.getenv("POLL_INTERVAL_MIN", "30"))
-MIN_DISCOUNT_PCT  = int(os.getenv("MIN_DISCOUNT_PCT", "0"))
-SEEN_IDS_FILE     = Path(os.getenv("SEEN_IDS_FILE", "./seen_ids.json"))
 
-TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+def mark_deal_posted(deal_hash: str, title: str, source: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT OR IGNORE INTO posted_deals VALUES (?,?,?,?)",
+        (deal_hash, title, source, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
 
-# ─── Feeds RSS padrão ────────────────────────────────────────
-# Sobrescreva via env RSS_FEEDS="url1,url2,url3"
-DEFAULT_RSS_FEEDS = [
-    # Pelando — feed público de ofertas
-    "https://www.pelando.com.br/api/feeds/deals",
-    # Promobit — feed público (remova se não quiser)
-    "https://www.promobit.com.br/feed/",
+
+# ══════════════════════════════════════════════════════════════
+# MODELO DE OFERTA
+# ══════════════════════════════════════════════════════════════
+
+@dataclass
+class Deal:
+    title      : str
+    url        : str                 # URL original da oferta
+    price      : Optional[float]     # Preço atual
+    old_price  : Optional[float]     # Preço anterior (para calcular desconto)
+    discount   : Optional[int]       # % de desconto
+    source     : str                 # "shopee" | "mercadolivre" | "pelando" | "rss"
+    image_url  : Optional[str] = None
+
+    @property
+    def hash(self) -> str:
+        """ID único baseado no título para evitar duplicatas."""
+        return hashlib.md5(self.title.lower().strip().encode()).hexdigest()
+
+    # affiliate_url virou método async para poder chamar unshorten_url (I/O).
+    # A @property não suporta await, então chamamos como: await deal.get_affiliate_url()
+    async def get_affiliate_url(self) -> str:
+        expanded = await unshorten_url(self.url)
+        return inject_affiliate_params(expanded, self.source)
+
+
+# ══════════════════════════════════════════════════════════════
+# RESOLUÇÃO DE URLs ENCURTADAS
+# ══════════════════════════════════════════════════════════════
+
+# Domínios conhecidos de encurtadores de URL.
+# Regex pura falha neles porque não há parâmetros visíveis na string.
+SHORT_URL_DOMAINS = {
+    "shope.ee", "amzn.to", "bit.ly", "t.co", "tinyurl.com",
+    "ow.ly", "buff.ly", "rb.gy", "cutt.ly", "short.io",
+}
+
+async def unshorten_url(url: str) -> str:
+    """
+    Resolve URLs encurtadas seguindo redirects até a URL final.
+
+    Por que HEAD e não GET?
+    HEAD traz apenas os headers (sem body), então é muito mais rápido
+    e consome quase zero banda — ideal para resolver centenas de links.
+
+    Por que follow_redirects=True?
+    Encurtadores podem ter múltiplos saltos (bit.ly → shope.ee → shopee.com.br).
+    Seguimos todos automaticamente.
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    # Só resolve se for um domínio reconhecido de encurtador
+    if not any(hostname.endswith(d) for d in SHORT_URL_DOMAINS):
+        return url
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+            resp = await client.head(url)
+            final_url = str(resp.url)
+            log.info(f"   🔗 Unshorten: {url[:40]} → {final_url[:60]}")
+            return final_url
+    except Exception as e:
+        log.warning(f"   ⚠️  Não foi possível resolver URL encurtada ({url}): {e}")
+        return url  # Fallback: usa a URL original sem injeção
+
+
+# ══════════════════════════════════════════════════════════════
+# INJEÇÃO DE LINK DE AFILIADO (urllib.parse)
+# ══════════════════════════════════════════════════════════════
+
+def inject_affiliate_params(url: str, source: str) -> str:
+    """
+    Injeta parâmetros de afiliado de forma estruturalmente segura.
+
+    POR QUE urllib.parse em vez de Regex pura?
+    Regex em URLs tem edge cases perigosos:
+      - URL já termina com '?' → adicionar '?' de novo quebra a sintaxe
+      - Parâmetro já existe com valor diferente → Regex pode duplicar
+      - Encoding especial (%20, +) → Regex pode corromper
+
+    urllib.parse.parse_qs() + urlencode() garante que:
+      - '?' vs '&' são escolhidos corretamente
+      - Parâmetros existentes são removidos antes de adicionar os novos
+      - A URL final é sempre válida
+
+    NOTA: Esta função espera uma URL JÁ EXPANDIDA (após unshorten_url).
+    """
+    url = url.strip()
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    if "shopee.com.br" in hostname:
+        # parse_qs preserva todos os params existentes como dict
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        # Remove parâmetros de afiliado antigos para não duplicar
+        for old_key in ("smtt", "smid", "af_id", "sub_id"):
+            params.pop(old_key, None)
+        # Adiciona os novos (listas, pois parse_qs retorna listas)
+        params["smtt"] = ["0"]
+        params["smid"] = [SHOPEE_AFFILIATE_ID]
+        # urlencode com doseq=True achata as listas de volta a string
+        new_query = urlencode(params, doseq=True)
+        return urlunparse(parsed._replace(query=new_query))
+
+    if "mercadolivre.com.br" in hostname or "mercadopago.com.br" in hostname:
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        for old_key in ("mt", "mmt", "utm_source", "utm_medium"):
+            params.pop(old_key, None)
+        params["mt"]  = ["CAMPANHA_01"]
+        params["mmt"] = [ML_AFFILIATE_ID]
+        new_query = urlencode(params, doseq=True)
+        return urlunparse(parsed._replace(query=new_query))
+
+    return url  # Outras fontes: retorna sem alteração
+
+
+# ══════════════════════════════════════════════════════════════
+# FONTES DE GARIMPO
+# ══════════════════════════════════════════════════════════════
+
+# ── 1. Feed RSS do Pelando.com.br (comunidade de ofertas) ────
+# TODO: não existe esses links, pensar em outra forma
+PELANDO_RSS_FEEDS = [
+    "https://www.pelando.com.br/api/feeds/deals?sort=hot",     # Hot do momento
+    "https://www.pelando.com.br/api/feeds/deals?sort=new",     # Mais recentes
+    # Você pode adicionar feeds de categorias específicas aqui
+    # Ex: https://www.pelando.com.br/ofertas/celulares-e-smartphones
 ]
 
-_env_feeds = os.getenv("RSS_FEEDS", "")
-RSS_FEEDS = [f.strip() for f in _env_feeds.split(",") if f.strip()] or DEFAULT_RSS_FEEDS
+async def fetch_pelando_deals() -> list[Deal]:
+    deals = []
+    async with httpx.AsyncClient(timeout=15) as client:
+        for feed_url in PELANDO_RSS_FEEDS:
+            try:
+                # feedparser funciona com URLs diretas
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries[:10]:  # Pega as top 10
+                    title = entry.get("title", "")
+                    link  = entry.get("link", "")
+                    
+                    if not title or not link:
+                        continue
+
+                    # Tenta extrair preço e desconto do sumário (HTML)
+                    summary = entry.get("summary", "")
+                    price, old_price, discount = parse_price_from_text(summary)
+
+                    # Filtra por desconto mínimo
+                    if discount and discount < MIN_DISCOUNT_PCT:
+                        continue
+
+                    # Determina fonte pelo domínio do link
+                    source = "shopee" if "shopee" in link else \
+                             "mercadolivre" if "mercadolivre" in link else "pelando"
+
+                    deals.append(Deal(
+                        title=title,
+                        url=link,
+                        price=price,
+                        old_price=old_price,
+                        discount=discount,
+                        source=source,
+                    ))
+
+            except Exception as e:
+                log.warning(f"Erro no feed {feed_url}: {e}")
+
+    return deals
 
 
-# ─── Persistência de dedup (seen_ids.json) ───────────────────
-def load_seen_ids() -> set[str]:
-    """Carrega IDs já processados do arquivo JSON."""
-    if SEEN_IDS_FILE.exists():
+# ── 2. RSS genérico (adicione quantos quiser) ────────────────
+CUSTOM_RSS_FEEDS = [
+    # Adicione outros feeds de promoção aqui
+    # Ex: feed de grupos de cupom, newsletters, etc.
+    # "https://exemplo.com/feed/ofertas"
+]
+
+async def fetch_custom_rss() -> list[Deal]:
+    deals = []
+    for feed_url in CUSTOM_RSS_FEEDS:
         try:
-            with open(SEEN_IDS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ids = set(data.get("seen", []))
-                log.info(f"📂 Dedup carregado: {len(ids)} IDs conhecidos")
-                return ids
-        except (json.JSONDecodeError, KeyError) as e:
-            log.warning(f"⚠️  Erro ao ler {SEEN_IDS_FILE}: {e} — iniciando do zero")
-    return set()
-
-
-def save_seen_ids(seen: set[str]) -> None:
-    """Persiste o set de IDs no arquivo JSON."""
-    try:
-        with open(SEEN_IDS_FILE, "w", encoding="utf-8") as f:
-            json.dump({"seen": list(seen), "updated_at": datetime.utcnow().isoformat()}, f, indent=2)
-    except OSError as e:
-        log.error(f"❌ Não foi possível salvar {SEEN_IDS_FILE}: {e}")
-
-
-# ─── Estado global em memória ────────────────────────────────
-seen_ids: set[str] = load_seen_ids()
-
-
-# ─── Extrai URL de imagem de uma entrada RSS ─────────────────
-def extract_image_url(entry: feedparser.FeedParserDict) -> Optional[str]:
-    """
-    Tenta extrair URL de imagem de diferentes campos do RSS:
-    1. media:thumbnail / media:content  (padrão Pelando/Promobit)
-    2. enclosures
-    3. <img> no summary/content HTML
-    """
-    # 1. media:thumbnail
-    media_thumbnail = getattr(entry, "media_thumbnail", None)
-    if media_thumbnail and isinstance(media_thumbnail, list):
-        url = media_thumbnail[0].get("url")
-        if url:
-            return url
-
-    # 2. media:content
-    media_content = getattr(entry, "media_content", None)
-    if media_content and isinstance(media_content, list):
-        for mc in media_content:
-            if mc.get("medium") == "image" or mc.get("type", "").startswith("image"):
-                url = mc.get("url")
-                if url:
-                    return url
-
-    # 3. enclosures (podcasts e feeds genéricos)
-    for enc in getattr(entry, "enclosures", []):
-        if enc.get("type", "").startswith("image"):
-            return enc.get("href") or enc.get("url")
-
-    # 4. Primeiro <img> do HTML do summary
-    summary = getattr(entry, "summary", "") or ""
-    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.IGNORECASE)
-    if match:
-        return match.group(1)
-
-    return None
-
-
-# ─── Extrai desconto da entrada (se disponível) ──────────────
-def extract_discount(entry: feedparser.FeedParserDict) -> int:
-    """Tenta extrair percentual de desconto do título ou summary."""
-    text = f"{getattr(entry, 'title', '')} {getattr(entry, 'summary', '')}"
-    match = re.search(r'(\d{1,3})\s*%\s*(?:off|de\s*desconto|desconto)', text, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    return 0
-
-
-# ─── Deriva um ID único para a entrada ───────────────────────
-def entry_id(entry: feedparser.FeedParserDict) -> str:
-    """Usa o ID do feed, ou a URL do link, como chave de dedup."""
-    return getattr(entry, "id", None) or getattr(entry, "link", "") or ""
-
-
-# ─── Busca e filtra ofertas dos feeds RSS ────────────────────
-async def fetch_rss_deals() -> list[dict]:
-    """
-    Percorre todos os RSS_FEEDS e retorna lista de dicts com:
-      { id, title, url, image_url, discount }
-    Filtra os que já foram vistos (seen_ids) e os abaixo do desconto mínimo.
-    """
-    new_deals: list[dict] = []
-
-    for feed_url in RSS_FEEDS:
-        log.info(f"🔎 Verificando feed: {feed_url}")
-        try:
-            # feedparser é síncrono — rodamos em executor para não bloquear o loop
-            loop = asyncio.get_running_loop()
-            feed = await loop.run_in_executor(None, feedparser.parse, feed_url)
-
-            entries = feed.get("entries", [])
-            log.info(f"   └─ {len(entries)} entradas encontradas")
-
-            for entry in entries:
-                eid = entry_id(entry)
-                if not eid:
-                    continue  # sem ID não há como deduplicar com segurança
-
-                if eid in seen_ids:
-                    continue  # já processado
-
-                title = getattr(entry, "title", "Oferta sem título").strip()
-                url   = getattr(entry, "link", "").strip()
-                if not url:
-                    continue
-
-                discount = extract_discount(entry)
-                if MIN_DISCOUNT_PCT > 0 and discount < MIN_DISCOUNT_PCT:
-                    log.debug(f"   ↷ Desconto insuficiente ({discount}%): {title[:50]}")
-                    continue
-
-                image_url = extract_image_url(entry)
-
-                new_deals.append({
-                    "id":        eid,
-                    "title":     title,
-                    "url":       url,
-                    "image_url": image_url,
-                    "discount":  discount,
-                })
-
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:5]:
+                deals.append(Deal(
+                    title=entry.get("title", "Oferta do dia"),
+                    url=entry.get("link", ""),
+                    price=None,
+                    old_price=None,
+                    discount=None,
+                    source="rss",
+                ))
         except Exception as e:
-            log.error(f"❌ Erro ao processar feed {feed_url}: {e}")
-
-    log.info(f"✅ {len(new_deals)} oferta(s) nova(s) encontrada(s)")
-    return new_deals
+            log.warning(f"Erro no RSS customizado {feed_url}: {e}")
+    return deals
 
 
-# ─── Formata mensagem para o Telegram ────────────────────────
-def format_telegram_message(deal: dict) -> str:
-    title    = deal["title"]
-    url      = deal["url"]
-    discount = deal.get("discount", 0)
-    discount_str = f"🏷️ *{discount}% OFF*\n" if discount > 0 else ""
+def parse_price_from_text(text: str) -> tuple[Optional[float], Optional[float], Optional[int]]:
+    """
+    Tenta extrair preço, preço original e % de desconto de texto HTML.
+    Padrões: R$ 49,90 | de R$ 99,90 por R$ 49,90 | -50%
+    """
+    # Preço com desconto: R$ XX,XX ou R$XX.XX
+    prices_found = re.findall(r'R\$\s*([\d.,]+)', text)
+    prices = []
+    for p in prices_found:
+        try:
+            prices.append(float(p.replace(".", "").replace(",", ".")))
+        except ValueError:
+            pass
 
-    return (
-        f"🛍️ *{title}*\n\n"
-        f"{discount_str}"
-        f"👉 [Ver oferta completa]({url})\n\n"
-        f"_Achadinhos do Momento_ 🔥"
+    # % desconto explícito
+    disc_match = re.search(r'[-−](\d{1,3})\s*%', text)
+    discount   = int(disc_match.group(1)) if disc_match else None
+
+    if len(prices) >= 2:
+        old_price = max(prices)
+        price     = min(prices)
+        if not discount and old_price > 0:
+            discount = int(((old_price - price) / old_price) * 100)
+        return price, old_price, discount
+
+    if len(prices) == 1:
+        return prices[0], None, discount
+
+    return None, None, discount
+
+
+# ══════════════════════════════════════════════════════════════
+# FORMATADOR DE MENSAGEM
+# ══════════════════════════════════════════════════════════════
+
+SOURCE_LABELS = {
+    "shopee"       : "🧡 Shopee",
+    "mercadolivre" : "💛 Mercado Livre",
+    "pelando"      : "🔥 Pelando",
+    "rss"          : "🌐 Oferta",
+}
+
+def format_message(deal: Deal, aff_url: str) -> str:
+    """Formata a mensagem do Telegram com Markdown. Recebe aff_url já resolvida."""
+    source_label = SOURCE_LABELS.get(deal.source, "🛒 Oferta")
+
+    lines = [f"*{deal.title}*\n"]
+
+    # Bloco de preço
+    if deal.price and deal.old_price:
+        lines.append(f"~~R$ {deal.old_price:.2f}~~ → *R$ {deal.price:.2f}*")
+    elif deal.price:
+        lines.append(f"*R$ {deal.price:.2f}*")
+
+    if deal.discount:
+        lines.append(f"🏷️ *{deal.discount}% OFF*")
+
+    lines.append(f"\n📦 Fonte: {source_label}")
+    lines.append(f"\n🔗 [Ver oferta e comprar]({aff_url})")
+    lines.append("\n_Achadinhos do Momento · @achadinhosdomomento_")
+
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# PIPELINE PRINCIPAL
+# ══════════════════════════════════════════════════════════════
+
+async def run_garimpo(bot: Bot):
+    """Executa o ciclo completo de garimpo e postagem."""
+    log.info("⛏️  Iniciando ciclo de garimpo...")
+
+    # 1. Coleta de todas as fontes
+    all_deals: list[Deal] = []
+    all_deals += await fetch_pelando_deals()
+    all_deals += await fetch_custom_rss()
+
+    log.info(f"   Encontradas {len(all_deals)} ofertas brutas.")
+
+    posted = 0
+    for deal in all_deals:
+        # 2. Verificar duplicata
+        if deal_already_posted(deal.hash):
+            continue
+
+        # 3. Filtrar URL inválida
+        if not deal.url or not deal.url.startswith("http"):
+            continue
+
+        # 4. Resolver URL (unshorten se necessário) e injetar afiliado
+        try:
+            aff_url = await deal.get_affiliate_url()
+        except Exception as e:
+            log.warning(f"   ⚠️  Falha ao resolver URL, usando original: {e}")
+            aff_url = deal.url
+
+        # 5. Formatar e postar
+        try:
+            msg = format_message(deal, aff_url)
+            await bot.send_message(
+                chat_id    = CHANNEL_ID,
+                text       = msg,
+                parse_mode = ParseMode.MARKDOWN,
+                disable_web_page_preview = False,  # Exibe preview da imagem
+            )
+            mark_deal_posted(deal.hash, deal.title, deal.source)
+            posted += 1
+            log.info(f"   ✅ Postado: {deal.title[:60]}...")
+
+            # Rate limit: espera 3 segundos entre posts
+            await asyncio.sleep(3)
+
+        except TelegramError as e:
+            # [FIX-7] RESILIÊNCIA: FloodWait é subclasse de TelegramError e carrega
+            # retry_after (segundos que devemos aguardar). Ignorar esse campo faz o
+            # bot bater repetidamente no rate limit até o próximo ciclo, acumulando
+            # erros e arriscando ban temporário. A deal NÃO é marcada como postada
+            # → será retentada no próximo ciclo de forma natural.
+            from telegram.error import RetryAfter
+            if isinstance(e, RetryAfter):
+                wait = e.retry_after + 2   # +2s de margem de segurança
+                log.warning(
+                    f"   ⏳ FloodWait {wait}s — '{deal.title[:40]}' retentada no próximo ciclo"
+                )
+                await asyncio.sleep(wait)
+            else:
+                log.error(f"   ❌ Erro Telegram ao postar '{deal.title[:40]}': {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+# COMANDOS ADMIN DO BOT (use no chat privado com o bot)
+# ══════════════════════════════════════════════════════════════
+
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update
+
+ADMIN_USER_ID = int(os.getenv("ADMIN_TELEGRAM_USER_ID", "0"))
+
+
+def is_admin(update: Update) -> bool:
+    return update.effective_user.id == ADMIN_USER_ID
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    await update.message.reply_text(
+        "🤖 *Garimpeiro Online!*\n\n"
+        "Comandos disponíveis:\n"
+        "/garimpar — Roda o ciclo agora\n"
+        "/status   — Mostra estatísticas\n"
+        "/postar <título> | <url> — Posta oferta manual\n",
+        parse_mode=ParseMode.MARKDOWN
     )
 
 
-# ─── Envia mensagem ao Telegram ──────────────────────────────
-async def send_telegram(client: httpx.AsyncClient, deal: dict) -> bool:
-    """
-    Envia sendPhoto se houver image_url, senão sendMessage.
-    Retorna True em sucesso, False em falha.
-    """
-    text = format_telegram_message(deal)
-
-    try:
-        if deal.get("image_url"):
-            payload = {
-                "chat_id":    CHANNEL_ID,
-                "photo":      deal["image_url"],
-                "caption":    text,
-                "parse_mode": "Markdown",
-            }
-            resp = await client.post(f"{TG_API}/sendPhoto", json=payload, timeout=15)
-        else:
-            payload = {
-                "chat_id":                  CHANNEL_ID,
-                "text":                     text,
-                "parse_mode":               "Markdown",
-                "disable_web_page_preview": False,
-            }
-            resp = await client.post(f"{TG_API}/sendMessage", json=payload, timeout=15)
-
-        if resp.status_code == 200:
-            msg_id = resp.json().get("result", {}).get("message_id", "?")
-            log.info(f"   📤 Telegram OK → msg #{msg_id}")
-            return True
-
-        log.error(f"   ❌ Telegram erro {resp.status_code}: {resp.text[:200]}")
-        return False
-
-    except httpx.HTTPError as e:
-        log.error(f"   ❌ Telegram HTTPError: {e}")
-        return False
-
-
-# ─── Cadastra oferta na API FastAPI ──────────────────────────
-async def post_api_link(client: httpx.AsyncClient, deal: dict) -> bool:
-    """
-    POST /links — cadastra a oferta no banco da API.
-    Retorna True em sucesso, False em falha.
-    """
-    payload = {
-        "title":       deal["title"],
-        "url":         deal["url"],
-        "emoji":       "🛍️",
-        "badge":       "NOVO",
-        "badge_color": "#e11d48",
-        "order":       10,
-        "image_url":   deal.get("image_url"),
-    }
-    headers = {"x-admin-secret": ADMIN_SECRET}
-
-    try:
-        resp = await client.post(
-            f"{API_BASE_URL}/links",
-            json=payload,
-            headers=headers,
-            timeout=15,
-        )
-        if resp.status_code in (200, 201):
-            link_id = resp.json().get("id", "?")
-            log.info(f"   🗄️  API OK → link #{link_id} cadastrado")
-            return True
-
-        log.error(f"   ❌ API erro {resp.status_code}: {resp.text[:200]}")
-        return False
-
-    except httpx.HTTPError as e:
-        log.error(f"   ❌ API HTTPError: {e}")
-        return False
-
-
-# ─── Ciclo principal de garimpo ──────────────────────────────
-async def garimpar_ciclo() -> None:
-    """
-    Executado pelo APScheduler a cada POLL_INTERVAL_MIN minutos.
-    1. Busca ofertas novas nos feeds
-    2. Para cada oferta: envia Telegram → cadastra API → marca como vista
-    """
-    global seen_ids
-    log.info(f"{'─'*50}")
-    log.info(f"🔄 Iniciando ciclo de garimpo — {datetime.now().strftime('%H:%M:%S')}")
-
-    deals = await fetch_rss_deals()
-    if not deals:
-        log.info("💤 Nenhuma oferta nova. Próximo ciclo em %d min.", POLL_INTERVAL_MIN)
+async def cmd_garimpar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
         return
-
-    async with httpx.AsyncClient() as client:
-        posted = 0
-        for deal in deals:
-            log.info(f"📦 Processando: {deal['title'][:60]}…")
-
-            # 1. Envia para o Telegram
-            tg_ok = await send_telegram(client, deal)
-            if not tg_ok:
-                log.warning(f"   ⚠️  Telegram falhou — oferta NÃO cadastrada na API para evitar inconsistência")
-                # Marca como vista assim mesmo para não retentar infinitamente
-                seen_ids.add(deal["id"])
-                continue
-
-            # Pequena pausa para respeitar rate limit do Telegram (30 msg/s)
-            await asyncio.sleep(1.5)
-
-            # 2. Cadastra na API FastAPI
-            api_ok = await post_api_link(client, deal)
-            if not api_ok:
-                log.warning(f"   ⚠️  API falhou — oferta foi postada no Telegram mas não na vitrine")
-
-            # 3. Marca como vista em memória e persiste
-            seen_ids.add(deal["id"])
-            posted += 1
-
-    # Persiste o arquivo de dedup ao final do ciclo
-    save_seen_ids(seen_ids)
-    log.info(f"✅ Ciclo concluído — {posted}/{len(deals)} oferta(s) postada(s)")
-    log.info(f"   Próximo ciclo em {POLL_INTERVAL_MIN} minuto(s)")
+    await update.message.reply_text("⛏️ Iniciando garimpo manual...")
+    await run_garimpo(context.bot)
+    await update.message.reply_text("✅ Garimpo concluído!")
 
 
-# ─── Entry point ─────────────────────────────────────────────
-async def main() -> None:
-    log.info("=" * 50)
-    log.info("🚀 Garimpeiro iniciado")
-    log.info(f"   Canal: {CHANNEL_ID}")
-    log.info(f"   API:   {API_BASE_URL}")
-    log.info(f"   Feeds: {len(RSS_FEEDS)} configurado(s)")
-    log.info(f"   Ciclo: a cada {POLL_INTERVAL_MIN} minuto(s)")
-    log.info(f"   Dedup: {SEEN_IDS_FILE}")
-    if MIN_DISCOUNT_PCT > 0:
-        log.info(f"   Filtro: desconto mínimo de {MIN_DISCOUNT_PCT}%")
-    log.info("=" * 50)
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    conn  = sqlite3.connect(DB_PATH)
+    total = conn.execute("SELECT COUNT(*) FROM posted_deals").fetchone()[0]
+    today = conn.execute(
+        "SELECT COUNT(*) FROM posted_deals WHERE posted_at >= date('now')"
+    ).fetchone()[0]
+    conn.close()
+    await update.message.reply_text(
+        f"📊 *Status do Garimpeiro*\n\n"
+        f"📦 Total postado: {total}\n"
+        f"📅 Postado hoje: {today}\n"
+        f"⏱️ Intervalo: {POLL_INTERVAL_MIN} min\n"
+        f"💸 Desconto mínimo: {MIN_DISCOUNT_PCT}%",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-    # Roda um ciclo imediatamente na inicialização
-    await garimpar_ciclo()
 
-    # Agenda ciclos seguintes com APScheduler
+async def cmd_postar_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Uso: /postar Tênis Nike 🔥 | https://shopee.com.br/produto
+    """
+    if not is_admin(update):
+        return
+    try:
+        text  = " ".join(context.args)
+        parts = text.split("|")
+        if len(parts) < 2:
+            await update.message.reply_text("Uso: /postar <título> | <url>")
+            return
+
+        title, url = parts[0].strip(), parts[1].strip()
+        source     = "shopee" if "shopee" in url else \
+                     "mercadolivre" if "mercadolivre" in url else "rss"
+        deal = Deal(title=title, url=url, price=None, old_price=None, discount=None, source=source)
+
+        msg = format_message(deal)
+        await context.bot.send_message(
+            chat_id    = CHANNEL_ID,
+            text       = msg,
+            parse_mode = ParseMode.MARKDOWN,
+        )
+        mark_deal_posted(deal.hash, deal.title, deal.source)
+        await update.message.reply_text("✅ Postado com sucesso!")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ══════════════════════════════════════════════════════════════
+
+def main():
+    if not BOT_TOKEN:
+        raise ValueError("❌ Defina a variável de ambiente TELEGRAM_BOT_TOKEN")
+
+    db_init()
+    log.info(f"🤖 Garimpeiro iniciando | Canal: {CHANNEL_ID} | Intervalo: {POLL_INTERVAL_MIN}min")
+
+    # Cria a Application do python-telegram-bot
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # Registra comandos admin
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("garimpar", cmd_garimpar))
+    app.add_handler(CommandHandler("status",   cmd_status))
+    app.add_handler(CommandHandler("postar",   cmd_postar_manual))
+
+    # Scheduler para rodar automaticamente
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
-        garimpar_ciclo,
-        trigger="interval",
-        minutes=POLL_INTERVAL_MIN,
-        id="garimpar",
-        max_instances=1,       # evita sobreposição de ciclos lentos
-        misfire_grace_time=60, # tolera 60s de atraso sem pular o job
+        lambda: asyncio.ensure_future(run_garimpo(app.bot)),
+        trigger  = "interval",
+        minutes  = POLL_INTERVAL_MIN,
+        id       = "garimpo",
+        max_instances = 1,          # Garante que só rode 1 instância por vez
+        coalesce      = True,
     )
     scheduler.start()
-    log.info(f"⏰ Scheduler ativo — próxima execução em {POLL_INTERVAL_MIN} min")
 
-    # Mantém o processo vivo para sempre (Render Background Worker)
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        log.info("🛑 Garimpeiro encerrado pelo operador")
-        scheduler.shutdown()
+    log.info("✅ Bot rodando. Pressione Ctrl+C para parar.")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

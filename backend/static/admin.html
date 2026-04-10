@@ -462,7 +462,7 @@ function buildRow(link) {
         ${badgeHtml}
       </div>
       <div style="display:flex;align-items:center;gap:12px">
-        <a href="${esc(link.url)}" target="_blank" style="color:#52525b;font-size:11px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;text-decoration:none" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#52525b'">${esc(link.url.replace(/^https?:\/\//,''))}</a>
+        <a href="${safeHref(link.url)}" target="_blank" style="color:#52525b;font-size:11px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;text-decoration:none" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#52525b'">${esc(link.url.replace(/^https?:\/\//,''))}</a>
         <span style="color:#3f3f46;font-size:11px">•</span>
         <span style="color:#52525b;font-size:11px">${link.clicks} cliques</span>
         <span style="color:#3f3f46;font-size:11px">•</span>
@@ -640,6 +640,19 @@ function toast(msg, type='info') {
 // ── XSS escape ────────────────────────────────────
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function safeHref(url) {
+  // Só permite protocolos http:// e https://.
+  // Qualquer outra coisa (javascript:, data:, vbscript:) retorna '#invalid-url',
+  // que é inofensivo. esc() ainda é chamado para escapar chars HTML.
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return esc(url);
+    }
+  } catch (_) { /* URL malformada */ }
+  return '#invalid-url';
 }
 
 // ── Keyboard shortcuts ────────────────────────────

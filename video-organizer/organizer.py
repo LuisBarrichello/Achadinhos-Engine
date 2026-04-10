@@ -20,6 +20,8 @@ import os
 import shutil
 from pathlib import Path
 from datetime import datetime
+import re
+import unicodedata
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("organizer")
@@ -27,13 +29,21 @@ log = logging.getLogger("organizer")
 OUTPUT_DIR = Path(os.getenv("VIDEO_OUTPUT_DIR", "./organized"))
 QUEUE_CSV  = Path(os.getenv("QUEUE_CSV", "./queue.csv"))
 
+_WIN_RESERVED = frozenset([
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+])
+
 
 def slugify(text: str) -> str:
-    import re, unicodedata
     text = unicodedata.normalize("NFD", text)
     text = text.encode("ascii", "ignore").decode()
     text = re.sub(r"[^\w\s-]", "", text.lower())
-    return re.sub(r"[\s_-]+", "_", text).strip("_")
+    slug = re.sub(r"[\s_-]+", "_", text).strip("_") or "produto"
+    if slug.lower() in _WIN_RESERVED:
+        slug = f"p_{slug}"
+    return slug[:80]
 
 
 def process_queue(csv_path: Path, dry_run: bool = False):

@@ -1,327 +1,420 @@
 <!DOCTYPE html>
 <html lang="pt-BR" class="dark">
+
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Achadinhos do Momento | Curadoria de Ofertas</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<script>
-  tailwind.config = {
-    darkMode: "class",
-    theme: {
-      extend: {
-        colors: {
-          "primary": "#be99ff","primary-container": "#b287fe","surface-dim": "#0e0e0e",
-          "on-surface-variant": "#acabaa","surface-container-highest": "#262626",
-          "on-primary": "#3c0081","outline": "#767575","secondary": "#ffb3ae",
-          "on-secondary": "#860012","surface-variant": "#262626",
-          "surface-container-lowest": "#000000","secondary-container": "#540008",
-          "outline-variant": "#484848","on-surface": "#e7e5e4","on-tertiary": "#006731",
-          "surface": "#0e0e0e","surface-container-low": "#131313","error": "#fd6f85",
-          "on-background": "#e7e5e4","tertiary": "#b5ffc2","surface-container": "#1a1a19",
-          "background": "#0e0e0e","surface-container-high": "#202020",
-        },
-        borderRadius:{ DEFAULT:"0.25rem",lg:"0.5rem",xl:"0.75rem",full:"9999px" },
-        fontFamily:{ headline:["Space Grotesk"],body:["Manrope"],label:["Manrope"] }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Achadinhos do Momento | Curadoria de Ofertas</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+    rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#be99ff", "primary-container": "#b287fe", "surface-dim": "#0e0e0e",
+            "on-surface-variant": "#acabaa", "surface-container-highest": "#262626",
+            "on-primary": "#3c0081", "outline": "#767575", "secondary": "#ffb3ae",
+            "on-secondary": "#860012", "surface-variant": "#262626",
+            "surface-container-lowest": "#000000", "secondary-container": "#540008",
+            "outline-variant": "#484848", "on-surface": "#e7e5e4", "on-tertiary": "#006731",
+            "surface": "#0e0e0e", "surface-container-low": "#131313", "error": "#fd6f85",
+            "on-background": "#e7e5e4", "tertiary": "#b5ffc2", "surface-container": "#1a1a19",
+            "background": "#0e0e0e", "surface-container-high": "#202020",
+          },
+          borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+          fontFamily: { headline: ["Space Grotesk"], body: ["Manrope"], label: ["Manrope"] }
+        }
       }
     }
-  }
-</script>
-<style>
-  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24}
+  </script>
+  <style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24
+    }
 
-  body{
-    background-color:#0e0e0e;
-    background-image:
-      radial-gradient(ellipse at 0% 0%,rgba(190,153,255,.07) 0%,transparent 55%),
-      radial-gradient(ellipse at 100% 100%,rgba(255,179,174,.07) 0%,transparent 55%),
-      radial-gradient(ellipse at 50% 50%,rgba(181,255,194,.03) 0%,transparent 55%);
-    background-attachment:fixed;
-  }
+    body {
+      background-color: #0e0e0e;
+      background-image:
+        radial-gradient(ellipse at 0% 0%, rgba(190, 153, 255, .07) 0%, transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(255, 179, 174, .07) 0%, transparent 55%),
+        radial-gradient(ellipse at 50% 50%, rgba(181, 255, 194, .03) 0%, transparent 55%);
+      background-attachment: fixed;
+    }
 
-  .glass{background:rgba(38,38,38,.38);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+    .glass {
+      background: rgba(38, 38, 38, .38);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px)
+    }
 
-  /* Cards */
-  .deal-card{transition:transform .45s cubic-bezier(.22,1,.36,1),border-color .35s,box-shadow .35s}
-  .deal-card:hover{transform:translateY(-10px) scale(1.01)}
-  .deal-card .card-img{transition:transform .7s cubic-bezier(.22,1,.36,1)}
-  .deal-card:hover .card-img{transform:scale(1.1)}
+    /* Cards */
+    .deal-card {
+      transition: transform .45s cubic-bezier(.22, 1, .36, 1), border-color .35s, box-shadow .35s
+    }
 
-  /* Skeleton */
-  @keyframes shimmer{0%{background-position:-800px 0}100%{background-position:800px 0}}
-  .skeleton{
-    background:linear-gradient(90deg,#1a1a1a 25%,#252525 50%,#1a1a1a 75%);
-    background-size:800px 100%;
-    animation:shimmer 1.4s infinite linear;
-    border-radius:1.5rem;
-  }
+    .deal-card:hover {
+      transform: translateY(-10px) scale(1.01)
+    }
 
-  /* Fade-up */
-  @keyframes fadeUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
-  .fade-up{opacity:0;animation:fadeUp .55s ease forwards}
+    .deal-card .card-img {
+      transition: transform .7s cubic-bezier(.22, 1, .36, 1)
+    }
 
-  /* Search focus glow */
-  .search-wrap:focus-within{box-shadow:0 0 0 2px rgba(190,153,255,.35),0 8px 40px rgba(190,153,255,.12)}
-  .search-wrap{transition:box-shadow .3s}
+    .deal-card:hover .card-img {
+      transform: scale(1.1)
+    }
 
-  /* Hero orb float */
-  @keyframes orb-drift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(6px,-8px) scale(1.04)}}
-  .orb{animation:orb-drift 6s ease-in-out infinite}
+    /* Skeleton */
+    @keyframes shimmer {
+      0% {
+        background-position: -800px 0
+      }
 
-  /* Badge pulse */
-  @keyframes badge-pulse{0%,100%{opacity:1}50%{opacity:.65}}
-  .badge-anim{animation:badge-pulse 2.2s ease-in-out infinite}
+      100% {
+        background-position: 800px 0
+      }
+    }
 
-  /* Active filter button */
-  .filter-btn.is-active{
-    background:rgba(190,153,255,.18) !important;
-    border-color:rgba(190,153,255,.5) !important;
-    color:#be99ff !important;
-  }
+    .skeleton {
+      background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+      background-size: 800px 100%;
+      animation: shimmer 1.4s infinite linear;
+      border-radius: 1.5rem;
+    }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar{width:6px}
-  ::-webkit-scrollbar-track{background:#0e0e0e}
-  ::-webkit-scrollbar-thumb{background:#2c2c2c;border-radius:9999px}
-</style>
+    /* Fade-up */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(22px)
+      }
+
+      to {
+        opacity: 1;
+        transform: none
+      }
+    }
+
+    .fade-up {
+      opacity: 0;
+      animation: fadeUp .55s ease forwards
+    }
+
+    /* Search focus glow */
+    .search-wrap:focus-within {
+      box-shadow: 0 0 0 2px rgba(190, 153, 255, .35), 0 8px 40px rgba(190, 153, 255, .12)
+    }
+
+    .search-wrap {
+      transition: box-shadow .3s
+    }
+
+    /* Hero orb float */
+    @keyframes orb-drift {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1)
+      }
+
+      50% {
+        transform: translate(6px, -8px) scale(1.04)
+      }
+    }
+
+    .orb {
+      animation: orb-drift 6s ease-in-out infinite
+    }
+
+    /* Badge pulse */
+    @keyframes badge-pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .65
+      }
+    }
+
+    .badge-anim {
+      animation: badge-pulse 2.2s ease-in-out infinite
+    }
+
+    /* Active filter button */
+    .filter-btn.is-active {
+      background: rgba(190, 153, 255, .18) !important;
+      border-color: rgba(190, 153, 255, .5) !important;
+      color: #be99ff !important;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0e0e0e
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #2c2c2c;
+      border-radius: 9999px
+    }
+  </style>
 </head>
+
 <body class="font-body text-on-surface antialiased selection:bg-primary/30 selection:text-primary">
 
-<!-- ══════════ NAV ══════════ -->
-<nav class="fixed top-0 w-full z-50 bg-neutral-950/50 backdrop-blur-2xl border-b border-white/[0.04]">
-  <div class="flex justify-between items-center w-full px-6 md:px-10 py-4 max-w-7xl mx-auto">
-    <a href="#"
-      class="flex items-center gap-2 text-primary font-headline font-black uppercase tracking-tighter text-xl select-none">
-      <span class="material-symbols-outlined text-2xl" style="font-variation-settings:'FILL' 1">shopping_bag</span>
-      Achadinhos<span class="text-on-surface/70">do</span>Momento
-    </a>
-
-    <div class="flex items-center gap-3">
-      <a href="#newsletter"
-        class="hidden md:flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-on-primary font-bold text-sm hover:bg-primary/90 active:scale-95 transition-all">
-        <span class="material-symbols-outlined text-base" style="font-variation-settings:'FILL' 1">send</span>Telegram
+  <!-- ══════════ NAV ══════════ -->
+  <nav class="fixed top-0 w-full z-50 bg-neutral-950/50 backdrop-blur-2xl border-b border-white/[0.04]">
+    <div class="flex justify-between items-center w-full px-6 md:px-10 py-4 max-w-7xl mx-auto">
+      <a href="#"
+        class="flex items-center gap-2 text-primary font-headline font-black uppercase tracking-tighter text-xl select-none">
+        <span class="material-symbols-outlined text-2xl" style="font-variation-settings:'FILL' 1">shopping_bag</span>
+        Achadinhos<span class="text-on-surface/70">do</span>Momento
       </a>
-      <button class="p-2 rounded-full text-primary hover:bg-primary/10 transition-colors">
-        <span class="material-symbols-outlined">notifications</span>
-      </button>
-    </div>
-  </div>
-</nav>
 
-<!-- ══════════ MAIN ══════════ -->
-<main class="pt-28 pb-24 px-4 md:px-8 max-w-7xl mx-auto">
-
-  <!-- HERO -->
-  <header class="flex flex-col items-center text-center mb-20 space-y-7 fade-up">
-    <div class="relative">
-      <div class="orb absolute -inset-8 bg-primary/15 blur-3xl rounded-full pointer-events-none"></div>
-      <div class="relative w-20 h-20 bg-surface-container-high rounded-2xl flex items-center justify-center border border-primary/20 shadow-[0_0_32px_rgba(190,153,255,0.25)]">
-        <span class="material-symbols-outlined text-5xl text-primary" style="font-variation-settings:'FILL' 1">shopping_bag</span>
-      </div>
-    </div>
-    <div class="space-y-3 px-2 overflow-hidden">
-      <h1
-        class="text-2xl min-[375px]:text-3xl sm:text-4xl md:text-6xl font-black font-headline tracking-tighter whitespace-nowrap">
-        @achadinhos<span class="text-primary">domomento</span>
-      </h1>
-      <p class="text-sm sm:text-base md:text-lg text-on-surface-variant max-w-xl mx-auto leading-relaxed">
-        Os melhores preços do dia na <span class="text-secondary font-semibold">Shopee</span> e
-        <span class="text-tertiary font-semibold">Mercado Livre</span>. Atualizado diariamente para você economizar!
-      </p>
-    </div>
-    <div class="flex flex-wrap justify-center gap-3 text-xs font-bold font-headline tracking-widest uppercase">
-      <span class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
-        <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>Ao Vivo
-      </span>
-      <span id="countBadge" class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
-        <span class="material-symbols-outlined text-sm text-primary">bolt</span>
-        <span id="countText">Carregando...</span>
-      </span>
-      <span class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
-        <span class="material-symbols-outlined text-sm text-secondary">schedule</span>Hoje
-      </span>
-    </div>
-  </header>
-
-  <!-- SEARCH + FILTERS -->
-  <section class="max-w-2xl mx-auto mb-16 space-y-5 fade-up" style="animation-delay:.08s">
-    <div class="search-wrap relative flex items-center bg-surface-container-low/70 backdrop-blur-xl border border-outline-variant/25 rounded-2xl px-5 py-3.5">
-      <span class="material-symbols-outlined text-on-surface-variant mr-3 text-xl">search</span>
-      <input id="searchInput" oninput="applyFilters()"
-        class="w-full bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/40 text-base outline-none"
-        placeholder="Buscar produtos ou ofertas..." type="text"/>
-    </div>
-    <div class="flex flex-wrap justify-center gap-3">
-      <button onclick="setFilter('all')" data-filter="all"
-        class="filter-btn is-active px-5 py-2 rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
-        <span class="material-symbols-outlined text-sm">grid_view</span>Todos
-      </button>
-      <button onclick="setFilter('shopee')" data-filter="shopee"
-        class="filter-btn px-5 py-2 rounded-full border border-secondary/30 bg-secondary/[0.08] text-secondary/70 hover:bg-secondary/15 hover:text-secondary font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
-        <span class="w-2 h-2 rounded-full bg-secondary"></span>Shopee
-      </button>
-      <button onclick="setFilter('mercadolivre')" data-filter="mercadolivre"
-        class="filter-btn px-5 py-2 rounded-full border border-tertiary/30 bg-tertiary/[0.08] text-tertiary/70 hover:bg-tertiary/15 hover:text-tertiary font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
-        <span class="w-2 h-2 rounded-full bg-tertiary"></span>Mercado Livre
-      </button>
-    </div>
-  </section>
-
-  <!-- DEALS GRID -->
-  <section id="dealsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-    <!-- Skeletons iniciais -->
-    <div class="skeleton h-96"></div>
-    <div class="skeleton h-96"></div>
-    <div class="skeleton h-96"></div>
-    <div class="skeleton h-96"></div>
-    <div class="skeleton h-96"></div>
-    <div class="skeleton h-96"></div>
-  </section>
-
-  <!-- EMPTY STATE -->
-  <div id="emptyState" class="hidden flex-col items-center justify-center py-24 text-center space-y-4">
-    <span class="material-symbols-outlined text-6xl text-on-surface-variant/30">search_off</span>
-    <p class="text-on-surface-variant text-lg font-headline">Nenhum resultado encontrado</p>
-    <p class="text-on-surface-variant/50 text-sm">Tente outro termo ou limpe os filtros</p>
-    <button onclick="setFilter('all'); document.getElementById('searchInput').value=''; applyFilters();"
-      class="mt-2 px-5 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 font-bold text-sm hover:bg-primary/25 transition-all">
-      Limpar busca
-    </button>
-  </div>
-
-  <!-- ERROR STATE -->
-  <div id="errorState" class="hidden flex-col items-center justify-center py-24 text-center space-y-4">
-    <span class="material-symbols-outlined text-6xl text-error/40">wifi_off</span>
-    <p class="text-on-surface-variant text-lg font-headline">Não foi possível carregar as ofertas</p>
-    <p id="errorMsg" class="text-on-surface-variant/50 text-sm">Verifique se o servidor está rodando.</p>
-    <button onclick="loadLinks()"
-      class="mt-2 px-5 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 font-bold text-sm hover:bg-primary/25 transition-all flex items-center gap-2 mx-auto">
-      <span class="material-symbols-outlined text-sm">refresh</span>Tentar novamente
-    </button>
-  </div>
-
-  <!-- TELEGRAM -->
-  <section id="newsletter"
-    class="mt-24 p-8 md:p-14 glass rounded-3xl border border-outline-variant/15 relative overflow-hidden text-center">
-    <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-tertiary/5 pointer-events-none">
-    </div>
-    <div class="absolute -top-20 -right-20 w-64 h-64 bg-primary/10 blur-3xl rounded-full pointer-events-none"></div>
-  
-    <div class="relative z-10 space-y-5">
-      <div
-        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-widest mb-2">
-        <span class="material-symbols-outlined text-sm"
-          style="font-variation-settings:'FILL' 1">notifications_active</span>
-        Alertas em tempo real
-      </div>
-  
-      <h2 class="text-3xl md:text-4xl font-black font-headline tracking-tighter">Entre no Canal VIP de Achadinhos!</h2>
-  
-      <p class="text-on-surface-variant max-w-md mx-auto text-sm leading-relaxed">
-        As ofertas mais quentes, cupons exclusivos e bugs de preço chegam <b>primeiro</b> no nosso Telegram. Não deixe a
-        promoção expirar!
-      </p>
-  
-      <div class="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto mt-4">
-        <a href="URL_DO_SEU_CANAL" target="_blank"
-          class="w-full bg-[#0088cc] text-white px-8 py-4 rounded-full font-bold text-sm hover:brightness-110 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
-          </svg>
-          QUERO ENTRAR NO GRUPO →
+      <div class="flex items-center gap-3">
+        <a href="#newsletter"
+          class="hidden md:flex items-center gap-2 px-5 py-2 rounded-full bg-primary text-on-primary font-bold text-sm hover:bg-primary/90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined text-base" style="font-variation-settings:'FILL' 1">send</span>Telegram
         </a>
+        <button class="p-2 rounded-full text-primary hover:bg-primary/10 transition-colors">
+          <span class="material-symbols-outlined">notifications</span>
+        </button>
       </div>
-  
-      <p class="text-[10px] text-on-surface-variant/30 uppercase tracking-widest">Acesso gratuito. Saia quando quiser.</p>
     </div>
-  </section>
-</main>
+  </nav>
 
-<!-- FOOTER -->
-<footer class="border-t border-white/[0.04] bg-surface-dim">
-  <div class="max-w-7xl mx-auto px-8 py-12 flex flex-col md:flex-row justify-between items-center gap-8">
-    <div class="flex flex-col items-center md:items-start gap-1.5">
-      <span class="text-primary font-headline font-black uppercase tracking-tighter text-base">Achadinhos do Momento</span>
-      <p class="text-on-surface-variant/35 text-xs max-w-sm text-center md:text-left leading-relaxed">
-        Links de afiliado — Achadinhos do Momento © 2026. Links podem gerar comissão sem custo extra pra você.
-      </p>
+  <!-- ══════════ MAIN ══════════ -->
+  <main class="pt-28 pb-24 px-4 md:px-8 max-w-7xl mx-auto">
+
+    <!-- HERO -->
+    <header class="flex flex-col items-center text-center mb-20 space-y-7 fade-up">
+      <div class="relative">
+        <div class="orb absolute -inset-8 bg-primary/15 blur-3xl rounded-full pointer-events-none"></div>
+        <div
+          class="relative w-20 h-20 bg-surface-container-high rounded-2xl flex items-center justify-center border border-primary/20 shadow-[0_0_32px_rgba(190,153,255,0.25)]">
+          <span class="material-symbols-outlined text-5xl text-primary"
+            style="font-variation-settings:'FILL' 1">shopping_bag</span>
+        </div>
+      </div>
+      <div class="space-y-3 px-2 overflow-hidden">
+        <h1
+          class="text-2xl min-[375px]:text-3xl sm:text-4xl md:text-6xl font-black font-headline tracking-tighter whitespace-nowrap">
+          @achadinhos<span class="text-primary">domomento</span>
+        </h1>
+        <p class="text-sm sm:text-base md:text-lg text-on-surface-variant max-w-xl mx-auto leading-relaxed">
+          Os melhores preços do dia na <span class="text-secondary font-semibold">Shopee</span> e
+          <span class="text-tertiary font-semibold">Mercado Livre</span>. Atualizado diariamente para você economizar!
+        </p>
+      </div>
+      <div class="flex flex-wrap justify-center gap-3 text-xs font-bold font-headline tracking-widest uppercase">
+        <span
+          class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
+          <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>Ao Vivo
+        </span>
+        <span id="countBadge"
+          class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
+          <span class="material-symbols-outlined text-sm text-primary">bolt</span>
+          <span id="countText">Carregando...</span>
+        </span>
+        <span
+          class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-surface-container border border-outline-variant/20 text-on-surface-variant">
+          <span class="material-symbols-outlined text-sm text-secondary">schedule</span>Hoje
+        </span>
+      </div>
+    </header>
+
+    <!-- SEARCH + FILTERS -->
+    <section class="max-w-2xl mx-auto mb-16 space-y-5 fade-up" style="animation-delay:.08s">
+      <div
+        class="search-wrap relative flex items-center bg-surface-container-low/70 backdrop-blur-xl border border-outline-variant/25 rounded-2xl px-5 py-3.5">
+        <span class="material-symbols-outlined text-on-surface-variant mr-3 text-xl">search</span>
+        <input id="searchInput" oninput="applyFilters()"
+          class="w-full bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/40 text-base outline-none"
+          placeholder="Buscar produtos ou ofertas..." type="text" />
+      </div>
+      <div class="flex flex-wrap justify-center gap-3">
+        <button onclick="setFilter('all')" data-filter="all"
+          class="filter-btn is-active px-5 py-2 rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
+          <span class="material-symbols-outlined text-sm">grid_view</span>Todos
+        </button>
+        <button onclick="setFilter('shopee')" data-filter="shopee"
+          class="filter-btn px-5 py-2 rounded-full border border-secondary/30 bg-secondary/[0.08] text-secondary/70 hover:bg-secondary/15 hover:text-secondary font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
+          <span class="w-2 h-2 rounded-full bg-secondary"></span>Shopee
+        </button>
+        <button onclick="setFilter('mercadolivre')" data-filter="mercadolivre"
+          class="filter-btn px-5 py-2 rounded-full border border-tertiary/30 bg-tertiary/[0.08] text-tertiary/70 hover:bg-tertiary/15 hover:text-tertiary font-bold tracking-widest uppercase text-[10px] flex items-center gap-1.5 transition-all">
+          <span class="w-2 h-2 rounded-full bg-tertiary"></span>Mercado Livre
+        </button>
+      </div>
+    </section>
+
+    <!-- DEALS GRID -->
+    <section id="dealsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <!-- Skeletons iniciais -->
+      <div class="skeleton h-96"></div>
+      <div class="skeleton h-96"></div>
+      <div class="skeleton h-96"></div>
+      <div class="skeleton h-96"></div>
+      <div class="skeleton h-96"></div>
+      <div class="skeleton h-96"></div>
+    </section>
+
+    <!-- EMPTY STATE -->
+    <div id="emptyState" class="hidden flex-col items-center justify-center py-24 text-center space-y-4">
+      <span class="material-symbols-outlined text-6xl text-on-surface-variant/30">search_off</span>
+      <p class="text-on-surface-variant text-lg font-headline">Nenhum resultado encontrado</p>
+      <p class="text-on-surface-variant/50 text-sm">Tente outro termo ou limpe os filtros</p>
+      <button onclick="setFilter('all'); document.getElementById('searchInput').value=''; applyFilters();"
+        class="mt-2 px-5 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 font-bold text-sm hover:bg-primary/25 transition-all">
+        Limpar busca
+      </button>
     </div>
-    <div class="flex flex-wrap justify-center gap-6 text-xs text-on-surface-variant/35">
-      <a href="#" class="hover:text-primary transition-colors">Affiliate Disclosure</a>
-      <a href="#" class="hover:text-primary transition-colors">Privacidade</a>
-      <a href="#" class="hover:text-primary transition-colors">Termos</a>
-      <a href="#" class="hover:text-primary transition-colors">Contato</a>
+
+    <!-- ERROR STATE -->
+    <div id="errorState" class="hidden flex-col items-center justify-center py-24 text-center space-y-4">
+      <span class="material-symbols-outlined text-6xl text-error/40">wifi_off</span>
+      <p class="text-on-surface-variant text-lg font-headline">Não foi possível carregar as ofertas</p>
+      <p id="errorMsg" class="text-on-surface-variant/50 text-sm">Verifique se o servidor está rodando.</p>
+      <button onclick="loadLinks()"
+        class="mt-2 px-5 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 font-bold text-sm hover:bg-primary/25 transition-all flex items-center gap-2 mx-auto">
+        <span class="material-symbols-outlined text-sm">refresh</span>Tentar novamente
+      </button>
     </div>
-  </div>
-</footer>
 
-<!-- ══════════════════════════════════════════════════════
-     JAVASCRIPT — toda a lógica de consumo da API
-══════════════════════════════════════════════════════ -->
-<script>
-// ── Config ────────────────────────────────────────
-const API_BASE = 'http://localhost:8000';
+    <!-- TELEGRAM -->
+    <section id="newsletter"
+      class="mt-24 p-8 md:p-14 glass rounded-3xl border border-outline-variant/15 relative overflow-hidden text-center">
+      <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-tertiary/5 pointer-events-none">
+      </div>
+      <div class="absolute -top-20 -right-20 w-64 h-64 bg-primary/10 blur-3xl rounded-full pointer-events-none"></div>
 
-// ── Estado global ─────────────────────────────────
-let allLinks     = [];
-let activeFilter = 'all';
+      <div class="relative z-10 space-y-5">
+        <div
+          class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-widest mb-2">
+          <span class="material-symbols-outlined text-sm"
+            style="font-variation-settings:'FILL' 1">notifications_active</span>
+          Alertas em tempo real
+        </div>
 
-// ── Detecta loja pelo domínio da URL ──────────────
-function detectStore(url = '') {
-  const u = url.toLowerCase();
-  if (u.includes('shopee'))                                return 'shopee';
-  if (u.includes('mercadolivre') || u.includes('mlb'))    return 'mercadolivre';
-  return 'outros';
-}
+        <h2 class="text-3xl md:text-4xl font-black font-headline tracking-tighter">Entre no Canal VIP de Achadinhos!
+        </h2>
 
-// ── Tokens visuais por loja ───────────────────────
-function storeTokens(store) {
-  const MAP = {
-    shopee:       { bar:'#ffb3ae', glow:'rgba(255,179,174,.55)', price:'#ffb3ae', borderHover:'rgba(255,179,174,.3)' },
-    mercadolivre: { bar:'#b5ffc2', glow:'rgba(181,255,194,.55)', price:'#b5ffc2', borderHover:'rgba(181,255,194,.3)' },
-    outros:       { bar:'#be99ff', glow:'rgba(190,153,255,.55)', price:'#be99ff', borderHover:'rgba(190,153,255,.3)' },
-  };
-  return MAP[store] ?? MAP.outros;
-}
+        <p class="text-on-surface-variant max-w-md mx-auto text-sm leading-relaxed">
+          As ofertas mais quentes, cupons exclusivos e bugs de preço chegam <b>primeiro</b> no nosso Telegram. Não deixe
+          a
+          promoção expirar!
+        </p>
 
-// ── Label da loja ─────────────────────────────────
-function storeLabel(store) {
-  return { shopee:'Shopee', mercadolivre:'Mercado Livre', outros:'Loja' }[store] ?? 'Loja';
-}
+        <div class="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto mt-4">
+          <a href="URL_DO_SEU_CANAL" target="_blank"
+            class="w-full bg-[#0088cc] text-white px-8 py-4 rounded-full font-bold text-sm hover:brightness-110 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
+            </svg>
+            QUERO ENTRAR NO GRUPO →
+          </a>
+        </div>
 
-// ── Escape XSS ────────────────────────────────────
-function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
+        <p class="text-[10px] text-on-surface-variant/30 uppercase tracking-widest">Acesso gratuito. Saia quando quiser.
+        </p>
+      </div>
+    </section>
+  </main>
 
-// ── Constrói HTML de um card ──────────────────────
-function buildCard(link, index) {
-  const store  = detectStore(link.url);
-  const tk     = storeTokens(store);
-  const delay  = (index % 6) * 0.08;
+  <!-- FOOTER -->
+  <footer class="border-t border-white/[0.04] bg-surface-dim">
+    <div class="max-w-7xl mx-auto px-8 py-12 flex flex-col md:flex-row justify-between items-center gap-8">
+      <div class="flex flex-col items-center md:items-start gap-1.5">
+        <span class="text-primary font-headline font-black uppercase tracking-tighter text-base">Achadinhos do
+          Momento</span>
+        <p class="text-on-surface-variant/35 text-xs max-w-sm text-center md:text-left leading-relaxed">
+          Links de afiliado — Achadinhos do Momento © 2026. Links podem gerar comissão sem custo extra pra você.
+        </p>
+      </div>
+      <div class="flex flex-wrap justify-center gap-6 text-xs text-on-surface-variant/35">
+        <a href="#" class="hover:text-primary transition-colors">Affiliate Disclosure</a>
+        <a href="#" class="hover:text-primary transition-colors">Privacidade</a>
+        <a href="#" class="hover:text-primary transition-colors">Termos</a>
+        <a href="#" class="hover:text-primary transition-colors">Contato</a>
+      </div>
+    </div>
+  </footer>
 
-  // Imagem ou placeholder
-  const imgHtml = link.image_url
-    ? `<img class="card-img w-full h-full object-cover"
+
+  <script>
+    // ── Config ────────────────────────────────────────
+    const API_BASE = 'http://localhost:8000';
+
+    // ── Estado global ─────────────────────────────────
+    let allLinks = [];
+    let activeFilter = 'all';
+
+    // ── Detecta loja pelo domínio da URL ──────────────
+    function detectStore(url = '') {
+      const u = url.toLowerCase();
+      if (u.includes('shopee')) return 'shopee';
+      if (u.includes('mercadolivre') || u.includes('mlb')) return 'mercadolivre';
+      return 'outros';
+    }
+
+    // ── Tokens visuais por loja ───────────────────────
+    function storeTokens(store) {
+      const MAP = {
+        shopee: { bar: '#ffb3ae', glow: 'rgba(255,179,174,.55)', price: '#ffb3ae', borderHover: 'rgba(255,179,174,.3)' },
+        mercadolivre: { bar: '#b5ffc2', glow: 'rgba(181,255,194,.55)', price: '#b5ffc2', borderHover: 'rgba(181,255,194,.3)' },
+        outros: { bar: '#be99ff', glow: 'rgba(190,153,255,.55)', price: '#be99ff', borderHover: 'rgba(190,153,255,.3)' },
+      };
+      return MAP[store] ?? MAP.outros;
+    }
+
+    // ── Label da loja ─────────────────────────────────
+    function storeLabel(store) {
+      return { shopee: 'Shopee', mercadolivre: 'Mercado Livre', outros: 'Loja' }[store] ?? 'Loja';
+    }
+
+    // ── Escape XSS ────────────────────────────────────
+    function esc(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // ── Constrói HTML de um card ──────────────────────
+    function buildCard(link, index) {
+      const store = detectStore(link.url);
+      const tk = storeTokens(store);
+      const delay = (index % 6) * 0.08;
+
+      // Imagem ou placeholder
+      const imgHtml = link.image_url
+        ? `<img class="card-img w-full h-full object-cover"
             src="${esc(link.image_url)}" alt="${esc(link.title)}" loading="lazy"
             onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'w-full h-full flex flex-col items-center justify-center gap-2',innerHTML:'<span class=\\'material-symbols-outlined text-5xl\\'style=\\'color:#484848\\'>image_not_supported</span><span style=\\'color:#484848;font-size:.7rem\\'>Sem imagem</span>'}))">`
-    : `<div class="w-full h-full flex flex-col items-center justify-center gap-2" style="color:#484848">
+        : `<div class="w-full h-full flex flex-col items-center justify-center gap-2" style="color:#484848">
          <span class="material-symbols-outlined text-5xl">image</span>
          <span style="font-size:.7rem">Sem imagem</span>
        </div>`;
 
-  // Badge do produto (ex: "HOT", "TOP", "OFERTA")
-  const badgeHtml = link.badge
-    ? `<span class="badge-anim px-2.5 py-1 rounded-full text-[9px] font-black tracking-widest uppercase"
+      // Badge do produto (ex: "HOT", "TOP", "OFERTA")
+      const badgeHtml = link.badge
+        ? `<span class="badge-anim px-2.5 py-1 rounded-full text-[9px] font-black tracking-widest uppercase"
              style="background:${esc(link.badge_color)};color:#fff">${esc(link.badge)}</span>`
-    : '';
+        : '';
 
-  return `
+      return `
 <article
   class="deal-card fade-up group relative bg-surface-container-high/40 glass rounded-3xl overflow-hidden border border-outline-variant/10"
   style="animation-delay:${delay}s; --hover-border:${tk.borderHover}"
@@ -371,97 +464,98 @@ function buildCard(link, index) {
     </div>
   </div>
 </article>`;
-}
+    }
 
-// ── Renderiza o grid com os links filtrados ────────
-function renderGrid(links) {
-  const grid    = document.getElementById('dealsGrid');
-  const empty   = document.getElementById('emptyState');
-  const errEl   = document.getElementById('errorState');
+    // ── Renderiza o grid com os links filtrados ────────
+    function renderGrid(links) {
+      const grid = document.getElementById('dealsGrid');
+      const empty = document.getElementById('emptyState');
+      const errEl = document.getElementById('errorState');
 
-  errEl.classList.add('hidden');   errEl.classList.remove('flex');
+      errEl.classList.add('hidden'); errEl.classList.remove('flex');
 
-  if (links.length === 0) {
-    grid.innerHTML = '';
-    empty.classList.remove('hidden'); empty.classList.add('flex');
-    return;
-  }
+      if (links.length === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden'); empty.classList.add('flex');
+        return;
+      }
 
-  empty.classList.add('hidden'); empty.classList.remove('flex');
-  grid.innerHTML = links.map((l, i) => buildCard(l, i)).join('');
-}
+      empty.classList.add('hidden'); empty.classList.remove('flex');
+      grid.innerHTML = links.map((l, i) => buildCard(l, i)).join('');
+    }
 
-// ── Filtro ativo + busca textual ──────────────────
-function setFilter(f) {
-  activeFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.classList.toggle('is-active', btn.dataset.filter === f);
-  });
-  applyFilters();
-}
+    // ── Filtro ativo + busca textual ──────────────────
+    function setFilter(f) {
+      activeFilter = f;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.filter === f);
+      });
+      applyFilters();
+    }
 
-function applyFilters() {
-  const q = document.getElementById('searchInput').value.toLowerCase().trim();
-  const filtered = allLinks.filter(link => {
-    const storeOk = activeFilter === 'all' || detectStore(link.url) === activeFilter;
-    const textOk  = !q || link.title.toLowerCase().includes(q);
-    return storeOk && textOk;
-  });
-  renderGrid(filtered);
-}
+    function applyFilters() {
+      const q = document.getElementById('searchInput').value.toLowerCase().trim();
+      const filtered = allLinks.filter(link => {
+        const storeOk = activeFilter === 'all' || detectStore(link.url) === activeFilter;
+        const textOk = !q || link.title.toLowerCase().includes(q);
+        return storeOk && textOk;
+      });
+      renderGrid(filtered);
+    }
 
-// ── Click tracking ────────────────────────────────
-async function handleClick(evt, id, anchorEl) {
-  // Não bloqueia a navegação — faz o POST em background
-  try {
-    const res  = await fetch(`${API_BASE}/links/${id}/click`, { method:'POST' });
-    const data = await res.json();
+    // ── Click tracking ────────────────────────────────
+    async function handleClick(evt, id, anchorEl) {
+      // Não bloqueia a navegação — faz o POST em background
+      try {
+        const res = await fetch(`${API_BASE}/links/${id}/click`, { method: 'POST' });
+        const data = await res.json();
 
-    // Atualiza no estado em memória
-    const link = allLinks.find(l => l.id === id);
-    if (link) link.clicks = data.clicks;
+        // Atualiza no estado em memória
+        const link = allLinks.find(l => l.id === id);
+        if (link) link.clicks = data.clicks;
 
-    // Atualiza o contador do card sem re-renderizar tudo
-    document.querySelectorAll(`.click-counter[data-id="${id}"]`).forEach(el => {
-      el.textContent = `${data.clicks} click${data.clicks !== 1 ? 's' : ''}`;
-    });
-  } catch (_) { /* silencioso */ }
-}
+        // Atualiza o contador do card sem re-renderizar tudo
+        document.querySelectorAll(`.click-counter[data-id="${id}"]`).forEach(el => {
+          el.textContent = `${data.clicks} click${data.clicks !== 1 ? 's' : ''}`;
+        });
+      } catch (_) { /* silencioso */ }
+    }
 
-// ── Fetch principal ───────────────────────────────
-async function loadLinks() {
-  const grid  = document.getElementById('dealsGrid');
-  const errEl = document.getElementById('errorState');
-  const empty = document.getElementById('emptyState');
+    // ── Fetch principal ───────────────────────────────
+    async function loadLinks() {
+      const grid = document.getElementById('dealsGrid');
+      const errEl = document.getElementById('errorState');
+      const empty = document.getElementById('emptyState');
 
-  // Skeletons de carregamento
-  grid.innerHTML = Array(6).fill('<div class="skeleton h-96"></div>').join('');
-  errEl.classList.add('hidden'); errEl.classList.remove('flex');
-  empty.classList.add('hidden'); empty.classList.remove('flex');
+      // Skeletons de carregamento
+      grid.innerHTML = Array(6).fill('<div class="skeleton h-96"></div>').join('');
+      errEl.classList.add('hidden'); errEl.classList.remove('flex');
+      empty.classList.add('hidden'); empty.classList.remove('flex');
 
-  try {
-    const res = await fetch(`${API_BASE}/links`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      try {
+        const res = await fetch(`${API_BASE}/links`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    allLinks = await res.json();
+        allLinks = await res.json();
 
-    // Atualiza badge de contagem no hero
-    document.getElementById('countText').textContent =
-      `${allLinks.length} Oferta${allLinks.length !== 1 ? 's' : ''}`;
+        // Atualiza badge de contagem no hero
+        document.getElementById('countText').textContent =
+          `${allLinks.length} Oferta${allLinks.length !== 1 ? 's' : ''}`;
 
-    applyFilters();
+        applyFilters();
 
-  } catch (err) {
-    grid.innerHTML = '';
-    errEl.classList.remove('hidden'); errEl.classList.add('flex');
-    document.getElementById('errorMsg').textContent =
-      `Não foi possível conectar em ${API_BASE}. Verifique se o servidor está rodando.`;
-    console.error('[Achadinhos] Erro ao carregar links:', err);
-  }
-}
+      } catch (err) {
+        grid.innerHTML = '';
+        errEl.classList.remove('hidden'); errEl.classList.add('flex');
+        document.getElementById('errorMsg').textContent =
+          `Não foi possível conectar em ${API_BASE}. Verifique se o servidor está rodando.`;
+        console.error('[Achadinhos] Erro ao carregar links:', err);
+      }
+    }
 
-// ── Init ──────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', loadLinks);
-</script>
+    // ── Init ──────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', loadLinks);
+  </script>
 </body>
+
 </html>

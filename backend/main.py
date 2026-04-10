@@ -164,9 +164,10 @@ async def lifespan(app: FastAPI):
 
 
 # ─── App ─────────────────────────────────────────────────────
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI(title="Achadinhos do Momento API", lifespan=lifespan)
 
-# [IMG-2] Montar diretório de imagens como rota estática
 app.mount("/static/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 app.add_middleware(
@@ -221,33 +222,88 @@ def verify_admin(x_admin_secret: str = Header(...)):
 
 
 # ─── Rate limit simples para /click ──────────────────────────
-_click_cache: dict[str, float] = defaultdict(float)
+# [FIX-3] SEGURANÇA/MEMÓRIA: O defaultdict original crescia indefinidamente.
+# Cada IP único adiciona uma entrada que jamais era removida.
+# Em tráfego viral (10k IPs × 10 links = 100k entradas), isso causa OOM
+# no Render Free Tier (512 MB RAM).
+#
+# Solução: limpeza lazy das entradas expiradas a cada N inserções.
+# Não usamos TTLCache/Redis para manter zero dependências extras.
+_click_cache: dict[str, float] = {}
 CLICK_COOLDOWN_SECONDS = 60
+_CLICK_CACHE_CLEANUP_EVERY = 500   # limpa a cada 500 novas entradas
+_click_cache_inserts = 0           # contador de inserções desde a última limpeza
+
 
 def _rate_limit_click(request: Request, link_id: int) -> bool:
+    """
+    Retorna True se o clique deve ser registrado.
+    Garante que o dict não cresça além de ~2× CLEANUP_EVERY entradas,
+    pois entradas expiradas são removidas periodicamente.
+    """
+    global _click_cache_inserts
+
     client_ip = request.client.host if request.client else "unknown"
     key = f"{client_ip}:{link_id}"
     now = time.monotonic()
-    if now - _click_cache[key] < CLICK_COOLDOWN_SECONDS:
+
+    if now - _click_cache.get(key, 0.0) < CLICK_COOLDOWN_SECONDS:
         return False
+
+    # Novo clique válido — registrar
     _click_cache[key] = now
+    _click_cache_inserts += 1
+
+    # Limpeza periódica: remove entradas cujo TTL expirou
+    # Roda somente a cada CLEANUP_EVERY inserções para não impactar latência
+    if _click_cache_inserts >= _CLICK_CACHE_CLEANUP_EVERY:
+        cutoff = now - CLICK_COOLDOWN_SECONDS
+        expired_keys = [k for k, ts in _click_cache.items() if ts < cutoff]
+        for k in expired_keys:
+            del _click_cache[k]
+        _click_cache_inserts = 0
+        log.debug(f"🧹 click_cache: removidas {len(expired_keys)} entradas expiradas, "
+                  f"restam {len(_click_cache)}")
+
     return True
 
 
 # ── Helper: deletar arquivo de imagem local ──────────────────
 def _delete_local_image(filename: Optional[str]) -> None:
+    """
+    [FIX-4] RESILIÊNCIA: Remove arquivo de imagem sem TOCTOU.
+    A sequência exists() + unlink() tem uma janela de tempo entre as duas
+    chamadas onde outro processo pode deletar o arquivo, causando
+    FileNotFoundError na segunda chamada.
+    missing_ok=True (Python 3.8+) torna a operação atômica: unlink retorna
+    sem erro se o arquivo já não existir.
+    """
     if not filename:
         return
     path = IMAGES_DIR / filename
-    if path.exists():
-        path.unlink()
+    try:
+        path.unlink(missing_ok=True)
         log.info(f"🗑️  Imagem removida: {filename}")
+    except OSError as e:
+        # Outros erros de I/O (permissão negada, disco cheio) devem ser logados
+        log.error(f"❌ Não foi possível remover imagem '{filename}': {e}")
 
 
 # ── Helper: construir URL pública da imagem ──────────────────
+# [FIX-5] RESILIÊNCIA: request.base_url pode retornar o endereço do proxy
+# interno do Render (ex: http://10.0.x.x:PORT) em vez do domínio público.
+# Isso gera URLs de imagem quebradas na bio page (acessa IP privado).
+# Solução: usar PUBLIC_API_URL env var como fonte autoritativa; fallback
+# para request.base_url apenas em desenvolvimento local.
+_PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "").rstrip("/")
+
 def _public_image_url(request: Request, filename: str) -> str:
-    """Gera URL absoluta para a imagem armazenada localmente."""
-    base = str(request.base_url).rstrip("/")
+    """
+    Gera URL absoluta pública para a imagem armazenada localmente.
+    Em produção, defina PUBLIC_API_URL=https://sua-api.onrender.com
+    para evitar que request.base_url retorne o endereço interno do proxy.
+    """
+    base = _PUBLIC_API_URL or str(request.base_url).rstrip("/")
     return f"{base}{IMAGES_URL}/{filename}"
 
 
@@ -298,12 +354,30 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
 
 @app.post("/links/{link_id}/click")
 def register_click(link_id: int, request: Request, session: Session = Depends(get_session)):
+    """
+    [FIX-6] RESILIÊNCIA: Evita lost-update no contador de cliques.
+    O padrão ORM (read + increment + write) tem uma janela de race condition:
+    se dois requests chegam simultaneamente, ambos lêem clicks=5, ambos
+    escrevem clicks=6 — um clique é perdido silenciosamente.
+    UPDATE ... SET clicks = clicks + 1 é atômico no SQLite: o banco
+    serializa a operação internamente sem expor a janela de race.
+    """
+    import sqlalchemy as sa
+
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
+
     if _rate_limit_click(request, link_id):
-        link.clicks += 1
+        # UPDATE atômico — sem read-modify-write no Python
+        session.exec(
+            sa.update(Link)
+            .where(Link.id == link_id)
+            .values(clicks=Link.clicks + 1)
+        )
         session.commit()
+        session.refresh(link)   # sincroniza o valor atualizado no objeto
+
     return {"clicks": link.clicks}
 
 
@@ -331,7 +405,11 @@ async def upload_image(
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
 
-    # [IMG-4] Validar MIME
+    # [FIX-2] SEGURANÇA: Validar Content-Type declarado E magic bytes reais.
+    # O Content-Type é controlado pelo cliente — não confiável sozinho.
+    # Sem magic bytes, um atacante envia PHP/HTML/SVG com Content-Type: image/jpeg
+    # e o arquivo é salvo com extensão .jpg mas executa código se o servidor
+    # o tratar como script (improvável no Render, mas má prática universal).
     content_type = file.content_type or ""
     if content_type not in ALLOWED_MIME:
         raise HTTPException(
@@ -347,6 +425,25 @@ async def upload_image(
         raise HTTPException(
             status_code=413,
             detail=f"Arquivo muito grande. Máximo permitido: {max_mb} MB"
+        )
+
+    # [FIX-2 cont.] Verificar magic bytes (assinatura do arquivo real).
+    # Mapa: primeiros bytes esperados por tipo MIME declarado.
+    # Um arquivo que mente sobre seu tipo não passa nesta checagem.
+    _MAGIC: dict[str, list[bytes]] = {
+        "image/jpeg": [b"\xff\xd8\xff"],
+        "image/png":  [b"\x89PNG\r\n\x1a\n"],
+        "image/gif":  [b"GIF87a", b"GIF89a"],
+        "image/webp": [b"RIFF"],
+    }
+    expected_sigs = _MAGIC.get(content_type, [])
+    if expected_sigs and not any(data.startswith(sig) for sig in expected_sigs):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Conteúdo do arquivo não corresponde ao tipo declarado '{content_type}'. "
+                "O arquivo pode estar corrompido ou ser de um tipo diferente do informado."
+            )
         )
 
     # [IMG-6] Deletar imagem antiga
