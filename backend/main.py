@@ -31,6 +31,9 @@ import shutil
 import time
 import uuid
 import httpx
+from fastapi.responses import FileResponse
+from pathlib import Path
+from fastapi import HTTPException
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -172,7 +175,7 @@ app.mount("/static/images", StaticFiles(directory=str(IMAGES_DIR)), name="images
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
+    allow_origins=["*"],
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
@@ -582,3 +585,14 @@ def healthcheck():
         "image_upload": "enabled",
         "max_image_mb": MAX_IMAGE_BYTES // (1024 * 1024),
     }
+
+
+@app.get("/admin", include_in_schema=False)
+def painel_admin():
+    """Rota oculta que entrega o painel administrativo"""
+    caminho_admin = Path(__file__).parent / "static" / "admin.html"
+
+    if not caminho_admin.exists():
+        raise HTTPException(status_code=404, detail="Arquivo admin.html não encontrado na pasta static.")
+
+    return FileResponse(caminho_admin)
