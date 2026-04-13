@@ -31,8 +31,3 @@ services:
         sync: false
       - key: ADMIN_SECRET
         sync: false
-
-    disk:
-      name: sqlite-and-images
-      mountPath: /data
-      sizeGB: 2        # 1 GB banco + 1 GB imagens
