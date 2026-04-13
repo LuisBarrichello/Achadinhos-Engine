@@ -1,25 +1,13 @@
 """
 =============================================================
- Achadinhos do Momento — Backend API  (v3 — image support)
+ Achadinhos do Momento — Backend API  (v4 — keyword per link)
  Stack : FastAPI + SQLite (via SQLModel)
 =============================================================
-Melhorias nesta versão (v3):
-  [IMG-1] Upload de imagem por link (POST /links/{id}/image)
-  [IMG-2] Servir imagens estáticas via /static/images/
-  [IMG-3] Campo image_url no modelo Link (URL externa OU path local)
-  [IMG-4] Validação de tipo MIME (jpeg, png, webp, gif)
-  [IMG-5] Limite de tamanho de arquivo (5 MB por padrão)
-  [IMG-6] Limpeza de imagem antiga ao fazer upload de nova
-=============================================================
-Fixes herdados da v2:
-  [SEC-1] compare_digest em TODOS os pontos de comparação de secrets
-  [SEC-2] Secrets sem valor default — falham explicitamente se não configurados
-  [SEC-3] CORS restrito ao domínio do frontend via env var
-  [SEC-4] Validação de URL com HttpUrl (Pydantic) no LinkCreate
-  [SEC-5] /click com rate limit simples via cache em memória
-  [BUG-1] int(hub_challenge) protegido com try/except
-  [BUG-2] DATABASE_URL documentado no render.yaml
-  [WAL]   PRAGMA WAL correto para engine síncrono do SQLModel
+Mudanças v4:
+  [KW-1] Coluna `keyword` no modelo Link (ex: "FONE", "TENIS")
+  [KW-2] LinkCreate/LinkRead incluem `keyword`
+  [KW-3] Webhook busca keyword diretamente na tabela Link
+  [KW-4] Migration automática da coluna keyword
 =============================================================
 """
 
@@ -27,6 +15,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -73,7 +62,7 @@ FRONTEND_ORIGIN      = os.getenv("FRONTEND_ORIGIN", "http://localhost:5500")
 
 # [IMG-1] Diretório de upload de imagens
 IMAGES_DIR  = Path(os.getenv("IMAGES_DIR", "./static/images"))
-IMAGES_URL  = os.getenv("IMAGES_URL", "/static/images")   # URL base pública
+IMAGES_URL  = os.getenv("IMAGES_URL", "/static/images")
 MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_MB", "5")) * 1024 * 1024
 ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
@@ -98,13 +87,14 @@ class Link(SQLModel, table=True):
     active      : bool          = True
     order       : int           = 0
     clicks      : int           = 0
-    # [IMG-3] Pode ser URL externa (https://...) ou path interno (/static/images/xxx.jpg)
     image_url   : Optional[str] = None
-    # Metadados da imagem armazenada localmente
-    image_local : Optional[str] = None   # nome do arquivo em IMAGES_DIR
+    image_local : Optional[str] = None
+    # [KW-1] Palavra-chave única por produto, sempre em MAIÚSCULAS
+    keyword     : Optional[str] = Field(default=None, index=True)
 
 
 class KeywordLink(SQLModel, table=True):
+    """Mantido por compatibilidade — nova lógica usa Link.keyword."""
     id      : Optional[int] = Field(default=None, primary_key=True)
     keyword : str           = Field(index=True)
     url     : str
@@ -121,6 +111,8 @@ def _run_migrations():
     migrations = [
         "ALTER TABLE link ADD COLUMN image_url TEXT",
         "ALTER TABLE link ADD COLUMN image_local TEXT",
+        # [KW-4] Nova coluna para keyword por produto
+        "ALTER TABLE link ADD COLUMN keyword TEXT",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -134,7 +126,6 @@ def _run_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Criar diretório de imagens se não existir
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     log.info(f"📁 Diretório de imagens: {IMAGES_DIR.resolve()}")
 
@@ -146,13 +137,13 @@ async def lifespan(app: FastAPI):
                 Link(
                     title="🔥 Ofertas Shopee do Dia",
                     url="https://shopee.com.br/seu_link_afiliado",
-                    emoji="🔥", badge="OFERTA", order=0,
+                    emoji="🔥", badge="OFERTA", order=0, keyword="SHOPEE",
                     image_url="https://lh3.googleusercontent.com/aida-public/AB6AXuBx-HVT4-5-ieSZAV7GMlDdXvFTRxq3iujBDvEOXB-fE9VuMUb5OKs0vC-FfjcB82CLQzl0e7rf6sfbFLSRe-KbmkNjn1wo8e3fPwBjZgDFuOyuqahcd4OFZeiNp7AtOHW9gKVc7MK4eMG_DCoyzscJEilNKz7xHtcDGVHXMG20F-Z5GhB7TYXkoxMrphx7U2bERstgzAI1HPtXTLydBjsn6v36KuzeQYjY2gdqDt3gprd_gYwhbwnG84BG4k0QW6tDzgh34KPQ51eO"
                 ),
                 Link(
                     title="⚡ Mercado Livre em Destaque",
                     url="https://mercadolivre.com.br/seu_link",
-                    emoji="⚡", badge="TOP", order=1,
+                    emoji="⚡", badge="TOP", order=1, keyword="MELI",
                     image_url="https://lh3.googleusercontent.com/aida-public/AB6AXuDbcrM9uHSsTZH3NIDd1PdrWdCYeHDavJH3JS2I_029yBAv2ynaUL3DhA_wLyKnwgf87qx5fbol6y3zMhjUwHgB5a_iU66_D_FcyTO3fBcUFbrgZYL3GhjAWCbAKOf1Qgu-MLY4Gs5O8Nhn9d1CfqIJyABOzBtrOaQfm0kCDM7DT8d-6J5GJ8eWzfGEesQSCO08ZncE9OQzTMY2MSpfufK0P0AaMHlKEmKx9SJSAHr2yw5KIcdU2la8OXEffjnG4EtD4rKH6-k0xNbq"
                 ),
             ]
@@ -190,16 +181,24 @@ class LinkCreate(BaseModel):
     badge_color : str           = "#e11d48"
     active      : bool          = True
     order       : int           = 0
-    # image_url pode ser informado manualmente (URL externa)
     image_url   : Optional[str] = None
+    # [KW-2] Palavra-chave única — será salva em MAIÚSCULAS
+    keyword     : Optional[str] = None
 
     @field_validator("badge_color")
     @classmethod
     def validate_hex_color(cls, v: str) -> str:
-        import re
         if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
             raise ValueError("badge_color deve ser um hex RGB válido, ex: #e11d48")
         return v
+
+    @field_validator("keyword")
+    @classmethod
+    def normalize_keyword(cls, v: Optional[str]) -> Optional[str]:
+        """Normaliza: maiúsculas, sem espaços extras, só alfanumérico."""
+        if not v:
+            return None
+        return re.sub(r'[^\w]', '', v.upper().strip()) or None
 
 
 class LinkRead(BaseModel):
@@ -213,6 +212,7 @@ class LinkRead(BaseModel):
     order       : int
     clicks      : int
     image_url   : Optional[str]
+    keyword     : Optional[str]  # [KW-2]
 
     class Config:
         from_attributes = True
@@ -225,25 +225,13 @@ def verify_admin(x_admin_secret: str = Header(...)):
 
 
 # ─── Rate limit simples para /click ──────────────────────────
-# [FIX-3] SEGURANÇA/MEMÓRIA: O defaultdict original crescia indefinidamente.
-# Cada IP único adiciona uma entrada que jamais era removida.
-# Em tráfego viral (10k IPs × 10 links = 100k entradas), isso causa OOM
-# no Render Free Tier (512 MB RAM).
-#
-# Solução: limpeza lazy das entradas expiradas a cada N inserções.
-# Não usamos TTLCache/Redis para manter zero dependências extras.
 _click_cache: dict[str, float] = {}
 CLICK_COOLDOWN_SECONDS = 60
-_CLICK_CACHE_CLEANUP_EVERY = 500   # limpa a cada 500 novas entradas
-_click_cache_inserts = 0           # contador de inserções desde a última limpeza
+_CLICK_CACHE_CLEANUP_EVERY = 500
+_click_cache_inserts = 0
 
 
 def _rate_limit_click(request: Request, link_id: int) -> bool:
-    """
-    Retorna True se o clique deve ser registrado.
-    Garante que o dict não cresça além de ~2× CLEANUP_EVERY entradas,
-    pois entradas expiradas são removidas periodicamente.
-    """
     global _click_cache_inserts
 
     client_ip = request.client.host if request.client else "unknown"
@@ -253,12 +241,9 @@ def _rate_limit_click(request: Request, link_id: int) -> bool:
     if now - _click_cache.get(key, 0.0) < CLICK_COOLDOWN_SECONDS:
         return False
 
-    # Novo clique válido — registrar
     _click_cache[key] = now
     _click_cache_inserts += 1
 
-    # Limpeza periódica: remove entradas cujo TTL expirou
-    # Roda somente a cada CLEANUP_EVERY inserções para não impactar latência
     if _click_cache_inserts >= _CLICK_CACHE_CLEANUP_EVERY:
         cutoff = now - CLICK_COOLDOWN_SECONDS
         expired_keys = [k for k, ts in _click_cache.items() if ts < cutoff]
@@ -273,14 +258,6 @@ def _rate_limit_click(request: Request, link_id: int) -> bool:
 
 # ── Helper: deletar arquivo de imagem local ──────────────────
 def _delete_local_image(filename: Optional[str]) -> None:
-    """
-    [FIX-4] RESILIÊNCIA: Remove arquivo de imagem sem TOCTOU.
-    A sequência exists() + unlink() tem uma janela de tempo entre as duas
-    chamadas onde outro processo pode deletar o arquivo, causando
-    FileNotFoundError na segunda chamada.
-    missing_ok=True (Python 3.8+) torna a operação atômica: unlink retorna
-    sem erro se o arquivo já não existir.
-    """
     if not filename:
         return
     path = IMAGES_DIR / filename
@@ -288,26 +265,21 @@ def _delete_local_image(filename: Optional[str]) -> None:
         path.unlink(missing_ok=True)
         log.info(f"🗑️  Imagem removida: {filename}")
     except OSError as e:
-        # Outros erros de I/O (permissão negada, disco cheio) devem ser logados
         log.error(f"❌ Não foi possível remover imagem '{filename}': {e}")
 
 
 # ── Helper: construir URL pública da imagem ──────────────────
-# [FIX-5] RESILIÊNCIA: request.base_url pode retornar o endereço do proxy
-# interno do Render (ex: http://10.0.x.x:PORT) em vez do domínio público.
-# Isso gera URLs de imagem quebradas na bio page (acessa IP privado).
-# Solução: usar PUBLIC_API_URL env var como fonte autoritativa; fallback
-# para request.base_url apenas em desenvolvimento local.
 _PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "").rstrip("/")
 
 def _public_image_url(request: Request, filename: str) -> str:
-    """
-    Gera URL absoluta pública para a imagem armazenada localmente.
-    Em produção, defina PUBLIC_API_URL=https://sua-api.onrender.com
-    para evitar que request.base_url retorne o endereço interno do proxy.
-    """
     base = _PUBLIC_API_URL or str(request.base_url).rstrip("/")
     return f"{base}{IMAGES_URL}/{filename}"
+
+
+# ── Helper: limpar texto do comentário ───────────────────────
+def _clean_comment(text: str) -> str:
+    """Remove tudo que não é alfanumérico e coloca em maiúsculas."""
+    return re.sub(r'[^\w]', '', text.upper().strip())
 
 
 # ══════════════════════════════════════════════════════════════
@@ -323,6 +295,17 @@ def list_links(session: Session = Depends(get_session)):
 
 @app.post("/links", response_model=LinkRead, dependencies=[Depends(verify_admin)])
 def create_link(data: LinkCreate, session: Session = Depends(get_session)):
+    # [KW-2] Verifica duplicidade de keyword antes de salvar
+    if data.keyword:
+        existing = session.exec(
+            select(Link).where(Link.keyword == data.keyword)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Palavra-chave '{data.keyword}' já está em uso pelo produto: '{existing.title}'"
+            )
+
     link = Link(**data.model_dump())
     link.url = str(data.url)
     session.add(link)
@@ -336,6 +319,20 @@ def update_link(link_id: int, data: LinkCreate, session: Session = Depends(get_s
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
+
+    # [KW-2] Verifica duplicidade de keyword (ignora o próprio link)
+    if data.keyword:
+        existing = session.exec(
+            select(Link)
+            .where(Link.keyword == data.keyword)
+            .where(Link.id != link_id)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Palavra-chave '{data.keyword}' já está em uso pelo produto: '{existing.title}'"
+            )
+
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(link, field, str(value) if field == "url" else value)
     session.commit()
@@ -348,7 +345,6 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
-    # [IMG-6] Limpa imagem local ao deletar o link
     _delete_local_image(link.image_local)
     session.delete(link)
     session.commit()
@@ -357,14 +353,6 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
 
 @app.post("/links/{link_id}/click")
 def register_click(link_id: int, request: Request, session: Session = Depends(get_session)):
-    """
-    [FIX-6] RESILIÊNCIA: Evita lost-update no contador de cliques.
-    O padrão ORM (read + increment + write) tem uma janela de race condition:
-    se dois requests chegam simultaneamente, ambos lêem clicks=5, ambos
-    escrevem clicks=6 — um clique é perdido silenciosamente.
-    UPDATE ... SET clicks = clicks + 1 é atômico no SQLite: o banco
-    serializa a operação internamente sem expor a janela de race.
-    """
     import sqlalchemy as sa
 
     link = session.get(Link, link_id)
@@ -372,14 +360,13 @@ def register_click(link_id: int, request: Request, session: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Link não encontrado")
 
     if _rate_limit_click(request, link_id):
-        # UPDATE atômico — sem read-modify-write no Python
         session.exec(
             sa.update(Link)
             .where(Link.id == link_id)
             .values(clicks=Link.clicks + 1)
         )
         session.commit()
-        session.refresh(link)   # sincroniza o valor atualizado no objeto
+        session.refresh(link)
 
     return {"clicks": link.clicks}
 
@@ -397,22 +384,10 @@ async def upload_image(
     file    : UploadFile = File(...),
     session : Session = Depends(get_session),
 ):
-    """
-    Aceita multipart/form-data com o campo `file`.
-    - Valida tipo MIME: jpeg, png, webp, gif  [IMG-4]
-    - Limita tamanho a MAX_IMAGE_MB MB         [IMG-5]
-    - Remove imagem anterior se houver         [IMG-6]
-    - Retorna o link atualizado com image_url
-    """
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
 
-    # [FIX-2] SEGURANÇA: Validar Content-Type declarado E magic bytes reais.
-    # O Content-Type é controlado pelo cliente — não confiável sozinho.
-    # Sem magic bytes, um atacante envia PHP/HTML/SVG com Content-Type: image/jpeg
-    # e o arquivo é salvo com extensão .jpg mas executa código se o servidor
-    # o tratar como script (improvável no Render, mas má prática universal).
     content_type = file.content_type or ""
     if content_type not in ALLOWED_MIME:
         raise HTTPException(
@@ -421,7 +396,6 @@ async def upload_image(
                    f"Use: {', '.join(ALLOWED_MIME)}"
         )
 
-    # [IMG-5] Ler e validar tamanho
     data = await file.read()
     if len(data) > MAX_IMAGE_BYTES:
         max_mb = MAX_IMAGE_BYTES // (1024 * 1024)
@@ -430,9 +404,6 @@ async def upload_image(
             detail=f"Arquivo muito grande. Máximo permitido: {max_mb} MB"
         )
 
-    # [FIX-2 cont.] Verificar magic bytes (assinatura do arquivo real).
-    # Mapa: primeiros bytes esperados por tipo MIME declarado.
-    # Um arquivo que mente sobre seu tipo não passa nesta checagem.
     _MAGIC: dict[str, list[bytes]] = {
         "image/jpeg": [b"\xff\xd8\xff"],
         "image/png":  [b"\x89PNG\r\n\x1a\n"],
@@ -449,10 +420,8 @@ async def upload_image(
             )
         )
 
-    # [IMG-6] Deletar imagem antiga
     _delete_local_image(link.image_local)
 
-    # Salvar nova imagem com nome único
     ext       = content_type.split("/")[-1].replace("jpeg", "jpg")
     filename  = f"link_{link_id}_{uuid.uuid4().hex[:8]}.{ext}"
     dest_path = IMAGES_DIR / filename
@@ -462,7 +431,6 @@ async def upload_image(
 
     log.info(f"📸 Imagem salva: {filename} ({len(data)//1024} KB) → link #{link_id}")
 
-    # Atualizar registro
     link.image_local = filename
     link.image_url   = _public_image_url(request, filename)
     session.commit()
@@ -540,18 +508,38 @@ async def receive_webhook(
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
                 continue
-            value   = change.get("value", {})
-            comment = value.get("text", "").upper().strip()
-            user_id = value.get("from", {}).get("id")
-            if not user_id:
+
+            value      = change.get("value", {})
+            raw_text   = value.get("text", "")
+            user_id    = value.get("from", {}).get("id")
+
+            if not user_id or not raw_text:
                 continue
+
+            # [KW-3] Limpa o comentário e busca keyword na tabela Link
+            comment_clean = _clean_comment(raw_text)
+            log.info(f"📩 Comentário recebido de {user_id}: '{raw_text}' → limpo: '{comment_clean}'")
+
+            matched_link = session.exec(
+                select(Link)
+                .where(Link.keyword == comment_clean)
+                .where(Link.active == True)
+            ).first()
+
+            if matched_link:
+                message = f"Oi! Obrigado pelo interesse! 🛍️\nAqui está o link do produto:\n{matched_link.url}"
+                background.add_task(send_dm, user_id, message)
+                log.info(f"📨 DM agendada para {user_id} → keyword '{comment_clean}' → link #{matched_link.id}")
+                continue
+
+            # Fallback: mantém compatibilidade com tabela KeywordLink legada
             keyword_link = session.exec(
-                select(KeywordLink).where(KeywordLink.keyword == comment)
+                select(KeywordLink).where(KeywordLink.keyword == comment_clean)
             ).first()
             if keyword_link:
                 message = keyword_link.message.format(url=keyword_link.url)
                 background.add_task(send_dm, user_id, message)
-                log.info(f"📨 DM agendada para {user_id}")
+                log.info(f"📨 DM (legado) agendada para {user_id}")
 
     return {"status": "ok"}
 
@@ -581,18 +569,16 @@ def healthcheck():
     return {
         "status": "🟢 online",
         "project": "Achadinhos do Momento",
-        "version": "3.0.0",
+        "version": "4.0.0",
         "image_upload": "enabled",
         "max_image_mb": MAX_IMAGE_BYTES // (1024 * 1024),
+        "keyword_automation": "enabled",
     }
 
 
 @app.get("/admin", include_in_schema=False)
 def painel_admin():
-    """Rota oculta que entrega o painel administrativo"""
     caminho_admin = Path(__file__).parent / "static" / "admin.html"
-
     if not caminho_admin.exists():
         raise HTTPException(status_code=404, detail="Arquivo admin.html não encontrado na pasta static.")
-
     return FileResponse(caminho_admin)

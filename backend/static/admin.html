@@ -24,19 +24,16 @@
   * { box-sizing: border-box; }
   body { background: #0a0a0b; color: #e4e4e7; font-family: 'Geist', sans-serif; }
 
-  /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 99px; }
 
-  /* ── Auth overlay ── */
   #auth-overlay {
     position: fixed; inset: 0; background: #0a0a0b;
     display: flex; align-items: center; justify-content: center; z-index: 100;
   }
   #auth-overlay.hidden { display: none; }
 
-  /* ── Inputs ── */
   .field {
     width: 100%; background: #111113; border: 1px solid #27272a;
     color: #e4e4e7; padding: 8px 12px; border-radius: 8px;
@@ -45,10 +42,18 @@
   }
   .field:focus { border-color: #7c3aed; }
   .field::placeholder { color: #52525b; }
-
   select.field option { background: #111113; }
 
-  /* ── Buttons ── */
+  /* Keyword field special styling */
+  .field-keyword {
+    text-transform: uppercase;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: #a78bfa;
+  }
+  .field-keyword::placeholder { text-transform: none; color: #52525b; font-weight: 400; letter-spacing: normal; font-family: 'Geist', sans-serif; }
+
   .btn-primary {
     background: #7c3aed; color: white; border: none;
     padding: 8px 16px; border-radius: 8px; font-size: 13px;
@@ -77,7 +82,6 @@
   }
   .btn-danger:hover { background: #1f0707; }
 
-  /* ── Cards ── */
   .card {
     background: #111113; border: 1px solid #1c1c1f;
     border-radius: 12px; overflow: hidden;
@@ -87,17 +91,16 @@
     display: flex; align-items: center; justify-content: space-between;
   }
 
-  /* ── Link rows ── */
+  /* [KW] Link row agora com 5 colunas: thumb | info | keyword | actions-col */
   .link-row {
     display: grid; gap: 12px; padding: 14px 16px;
     border-bottom: 1px solid #1c1c1f; align-items: center;
-    grid-template-columns: 48px 1fr auto;
+    grid-template-columns: 48px 1fr auto auto;
     transition: background 0.1s;
   }
   .link-row:last-child { border-bottom: none; }
   .link-row:hover { background: #0f0f11; }
 
-  /* ── Toast ── */
   #toast {
     position: fixed; bottom: 24px; right: 24px;
     padding: 10px 16px; border-radius: 10px;
@@ -112,7 +115,6 @@
   #toast.error   { background: #4c0519; border: 1px solid #9f1239; color: #fda4af; }
   #toast.info    { background: #1e1b4b; border: 1px solid #3730a3; color: #a5b4fc; }
 
-  /* ── Modal ── */
   #modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
     backdrop-filter: blur(4px); z-index: 50;
@@ -122,29 +124,38 @@
   #modal-overlay.open { opacity: 1; pointer-events: auto; }
   #modal-box {
     background: #111113; border: 1px solid #27272a; border-radius: 16px;
-    width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto;
     transform: scale(0.95); transition: transform 0.2s;
   }
   #modal-overlay.open #modal-box { transform: scale(1); }
 
-  /* ── Image upload drop zone ── */
-  .drop-zone {
-    border: 2px dashed #27272a; border-radius: 8px;
-    padding: 24px; text-align: center; cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
-  }
-  .drop-zone:hover, .drop-zone.drag-over {
-    border-color: #7c3aed; background: rgba(124,58,237,0.05);
-  }
-
-  /* ── Badge pill ── */
   .badge-pill {
     display: inline-block; padding: 2px 8px; border-radius: 99px;
     font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
     text-transform: uppercase;
   }
 
-  /* ── Skeleton ── */
+  /* [KW] Keyword pill — destaque roxo */
+  .keyword-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 99px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: rgba(124, 58, 237, 0.15);
+    border: 1px solid rgba(124, 58, 237, 0.35);
+    color: #a78bfa;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: nowrap;
+  }
+  .keyword-pill-empty {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 99px;
+    font-size: 10px; letter-spacing: 0.04em;
+    background: #18181b; border: 1px dashed #3f3f46; color: #52525b;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: nowrap;
+  }
+
   @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
   .skeleton {
     background: linear-gradient(90deg, #18181b 25%, #222225 50%, #18181b 75%);
@@ -152,34 +163,32 @@
     border-radius: 6px;
   }
 
-  /* ── Sidebar nav ── */
-  .nav-item {
-    display: flex; align-items: center; gap: 8px; padding: 7px 10px;
-    border-radius: 8px; font-size: 13px; color: #71717a;
-    cursor: pointer; transition: background 0.1s, color 0.1s;
-    white-space: nowrap;
-  }
-  .nav-item:hover { background: #18181b; color: #e4e4e7; }
-  .nav-item.active { background: #18181b; color: #e4e4e7; }
-
-  /* ── Upload progress ── */
   .progress-bar { height: 3px; background: #18181b; border-radius: 99px; overflow: hidden; }
   .progress-fill { height: 100%; background: #7c3aed; width: 0; transition: width 0.3s; border-radius: 99px; }
 
-  /* ── Color input ── */
   input[type="color"] { -webkit-appearance: none; padding: 0; border: none; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; background: transparent; }
   input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
   input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
 
-  /* ── Fade in ── */
   @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
   .fade-in { animation: fadeIn 0.3s ease forwards; }
 
-  /* ── Stats ── */
   .stat-card {
     background: #111113; border: 1px solid #1c1c1f; border-radius: 12px;
     padding: 16px 20px;
   }
+
+  /* [KW] Hint box */
+  .hint-box {
+    background: rgba(124, 58, 237, 0.08);
+    border: 1px solid rgba(124, 58, 237, 0.2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #a78bfa;
+    line-height: 1.6;
+  }
+  .hint-box strong { color: #c4b5fd; }
 </style>
 </head>
 <body>
@@ -232,7 +241,7 @@
   <div style="max-width:960px;margin:0 auto;padding:28px 20px">
 
     <!-- STATS ROW -->
-    <div id="stats-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+    <div id="stats-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
       <div class="stat-card">
         <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Total de Ofertas</div>
         <div id="stat-total" class="skeleton" style="height:28px;width:60px"></div>
@@ -244,6 +253,11 @@
       <div class="stat-card">
         <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Com Imagem</div>
         <div id="stat-images" class="skeleton" style="height:28px;width:60px"></div>
+      </div>
+      <!-- [KW] Stat: com keyword -->
+      <div class="stat-card">
+        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Com Keyword</div>
+        <div id="stat-keywords" class="skeleton" style="height:28px;width:60px"></div>
       </div>
     </div>
 
@@ -268,20 +282,19 @@
 
       <!-- SEARCH -->
       <div style="padding:12px 16px;border-bottom:1px solid #1c1c1f">
-        <input id="search-input" class="field" type="text" placeholder="Buscar por título…" oninput="filterLinks()" style="max-width:320px"/>
+        <input id="search-input" class="field" type="text" placeholder="Buscar por título ou palavra-chave…" oninput="filterLinks()" style="max-width:360px"/>
       </div>
 
       <!-- LINKS LIST -->
       <div id="links-list">
-        <!-- skeletons -->
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:200px"></div><div class="skeleton" style="height:11px;width:140px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:160px"></div><div class="skeleton" style="height:11px;width:120px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:220px"></div><div class="skeleton" style="height:11px;width:160px"></div></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:200px"></div><div class="skeleton" style="height:11px;width:140px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:160px"></div><div class="skeleton" style="height:11px;width:120px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:220px"></div><div class="skeleton" style="height:11px;width:160px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
       </div>
     </div>
 
-  </div><!-- /content -->
-</div><!-- /shell -->
+  </div>
+</div>
 
 <!-- ══════════ MODAL CRIAR/EDITAR ══════════ -->
 <div id="modal-overlay" onclick="closeModalOnBg(event)">
@@ -295,6 +308,7 @@
     <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
       <input type="hidden" id="edit-id"/>
 
+      <!-- Título + Emoji -->
       <div style="display:grid;grid-template-columns:1fr 80px;gap:12px">
         <div>
           <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Título <span style="color:#f87171">*</span></label>
@@ -306,11 +320,30 @@
         </div>
       </div>
 
+      <!-- URL -->
       <div>
         <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL de Afiliado <span style="color:#f87171">*</span></label>
         <input id="f-url" class="field" type="url" placeholder="https://shopee.com.br/..."/>
       </div>
 
+      <!-- [KW] Keyword field — destaque visual -->
+      <div>
+        <label style="font-size:12px;color:#a78bfa;display:block;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Palavra-Chave do Instagram
+          <span style="color:#52525b;font-size:11px;font-weight:400">(opcional)</span>
+        </label>
+        <input id="f-keyword" class="field field-keyword" type="text"
+               placeholder="Ex: FONE, TENIS, ASTRONAUTA"
+               oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"/>
+        <div class="hint-box" style="margin-top:8px">
+          <strong>📲 Como funciona:</strong> quando alguém comentar exatamente
+          <strong id="kw-preview">esta palavra</strong> no seu post do Instagram,
+          receberá o link deste produto automaticamente via DM.
+        </div>
+      </div>
+
+      <!-- Badge + Cor + Ordem -->
       <div style="display:grid;grid-template-columns:1fr 1fr 56px;gap:12px;align-items:end">
         <div>
           <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Badge</label>
@@ -329,6 +362,7 @@
         </div>
       </div>
 
+      <!-- URL da Imagem -->
       <div>
         <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL da Imagem <span style="color:#52525b">(opcional)</span></label>
         <input id="f-image-url" class="field" type="url" placeholder="https://… (ou use o upload após salvar)"/>
@@ -375,7 +409,6 @@ async function doLogin() {
       errEl.textContent = '❌ Senha incorreta (403 Forbidden).';
       errEl.style.display = 'block'; return;
     }
-    // 200 or any non-403 → login ok
     API_BASE  = base;
     ADMIN_KEY = secret;
     document.getElementById('auth-overlay').classList.add('hidden');
@@ -427,12 +460,18 @@ function updateStats(links) {
   document.getElementById('stat-clicks').className   = 'fade-in';
   document.getElementById('stat-images').textContent = links.filter(l=>l.image_url).length;
   document.getElementById('stat-images').className   = 'fade-in';
+  // [KW] Stat: links com keyword configurada
+  document.getElementById('stat-keywords').textContent = links.filter(l=>l.keyword).length;
+  document.getElementById('stat-keywords').className   = 'fade-in';
   document.getElementById('badge-count').textContent = links.length;
 }
 
 function filterLinks() {
   const q = document.getElementById('search-input').value.toLowerCase();
-  renderLinks(allLinks.filter(l => l.title.toLowerCase().includes(q)));
+  renderLinks(allLinks.filter(l =>
+    l.title.toLowerCase().includes(q) ||
+    (l.keyword || '').toLowerCase().includes(q)
+  ));
 }
 
 // ── Render ────────────────────────────────────────
@@ -450,6 +489,14 @@ function buildRow(link) {
     ? `<span class="badge-pill" style="background:${link.badge_color}22;color:${link.badge_color};border:1px solid ${link.badge_color}44">${esc(link.badge)}</span>`
     : '';
 
+  // [KW] Keyword pill na row
+  const keywordHtml = link.keyword
+    ? `<div class="keyword-pill">
+         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+         ${esc(link.keyword)}
+       </div>`
+    : `<div class="keyword-pill-empty">sem keyword</div>`;
+
   const imgPreview = link.image_url
     ? `<img src="${esc(link.image_url)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #27272a" onerror="this.style.display='none';this.nextSibling.style.display='flex'"  /><div style="display:none;width:44px;height:44px;background:#18181b;border-radius:8px;align-items:center;justify-content:center;font-size:18px">${esc(link.emoji||'🛍️')}</div>`
     : `<div style="width:44px;height:44px;background:#18181b;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #1c1c1f">${esc(link.emoji||'🛍️')}</div>`;
@@ -458,17 +505,17 @@ function buildRow(link) {
     <div style="position:relative">${imgPreview}</div>
     <div style="min-width:0">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-        <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px">${esc(link.title)}</span>
+        <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">${esc(link.title)}</span>
         ${badgeHtml}
       </div>
       <div style="display:flex;align-items:center;gap:12px">
-        <a href="${safeHref(link.url)}" target="_blank" style="color:#52525b;font-size:11px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;text-decoration:none" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#52525b'">${esc(link.url.replace(/^https?:\/\//,''))}</a>
+        <a href="${safeHref(link.url)}" target="_blank" style="color:#52525b;font-size:11px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;text-decoration:none" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#52525b'">${esc(link.url.replace(/^https?:\/\//,''))}</a>
         <span style="color:#3f3f46;font-size:11px">•</span>
         <span style="color:#52525b;font-size:11px">${link.clicks} cliques</span>
-        <span style="color:#3f3f46;font-size:11px">•</span>
-        <span style="color:#52525b;font-size:11px">ordem ${link.order}</span>
       </div>
     </div>
+    <!-- [KW] Coluna da keyword -->
+    <div style="display:flex;align-items:center">${keywordHtml}</div>
     <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
       <div style="display:flex;gap:6px">
         <button class="btn-ghost" onclick="openEditModal(${link.id})" title="Editar">
@@ -510,7 +557,6 @@ async function uploadImage(linkId, inputEl) {
     });
     if (!res.ok) throw new Error(await res.text());
     const updated = await res.json();
-    // Update in local array
     const idx = allLinks.findIndex(l => l.id === linkId);
     if (idx >= 0) allLinks[idx] = updated;
     filterLinks();
@@ -544,6 +590,9 @@ function openModal() {
   document.getElementById('f-badge-color-pick').value = '#e11d48';
   document.getElementById('f-order').value = '10';
   document.getElementById('f-image-url').value = '';
+  // [KW] limpa keyword
+  document.getElementById('f-keyword').value = '';
+  updateKwPreview();
   document.getElementById('modal-error').style.display = 'none';
   document.getElementById('modal-overlay').classList.add('open');
   setTimeout(()=>document.getElementById('f-title').focus(), 200);
@@ -562,6 +611,9 @@ function openEditModal(id) {
   document.getElementById('f-badge-color-pick').value = link.badge_color || '#e11d48';
   document.getElementById('f-order').value = link.order;
   document.getElementById('f-image-url').value = link.image_url || '';
+  // [KW] preenche keyword
+  document.getElementById('f-keyword').value = link.keyword || '';
+  updateKwPreview();
   document.getElementById('modal-error').style.display = 'none';
   document.getElementById('modal-overlay').classList.add('open');
 }
@@ -573,6 +625,15 @@ function syncColorPicker() {
   const val = document.getElementById('f-badge-color').value;
   if (/^#[0-9A-Fa-f]{6}$/.test(val)) document.getElementById('f-badge-color-pick').value = val;
 }
+
+// [KW] Atualiza o preview da keyword no hint box
+function updateKwPreview() {
+  const kw = document.getElementById('f-keyword').value.trim();
+  document.getElementById('kw-preview').textContent = kw ? `"${kw}"` : 'esta palavra';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('f-keyword').addEventListener('input', updateKwPreview);
+});
 
 // ── Save Link ─────────────────────────────────────
 async function saveLink() {
@@ -586,14 +647,18 @@ async function saveLink() {
   if (!url)   { errEl.textContent = 'A URL é obrigatória.'; errEl.style.display='block'; return; }
   try { new URL(url); } catch { errEl.textContent = 'URL inválida.'; errEl.style.display='block'; return; }
 
+  // [KW] Inclui keyword no payload — backend normaliza para maiúsculas
+  const rawKeyword = document.getElementById('f-keyword').value.trim();
+
   const body = {
     title,
     url,
-    emoji:       document.getElementById('f-emoji').value || '🛍️',
-    badge:       document.getElementById('f-badge').value.toUpperCase() || null,
-    badge_color: document.getElementById('f-badge-color').value,
-    order:       parseInt(document.getElementById('f-order').value) || 0,
-    image_url:   document.getElementById('f-image-url').value || null,
+    emoji       : document.getElementById('f-emoji').value || '🛍️',
+    badge       : document.getElementById('f-badge').value.toUpperCase() || null,
+    badge_color : document.getElementById('f-badge-color').value,
+    order       : parseInt(document.getElementById('f-order').value) || 0,
+    image_url   : document.getElementById('f-image-url').value || null,
+    keyword     : rawKeyword || null,  // [KW]
   };
 
   const btn = document.getElementById('btn-save');
@@ -614,7 +679,13 @@ async function saveLink() {
     closeModal();
     toast(editId ? 'Oferta atualizada ✓' : 'Oferta criada com sucesso ✓', 'success');
   } catch(e) {
-    errEl.textContent = `Erro: ${e.message}`;
+    // [KW] Trata conflito de keyword (409)
+    let msg = e.message;
+    if (msg.includes('409')) {
+      const detail = msg.match(/"detail":"([^"]+)"/);
+      msg = detail ? detail[1] : 'Palavra-chave já está em uso por outro produto.';
+    }
+    errEl.textContent = `Erro: ${msg}`;
     errEl.style.display = 'block';
   } finally {
     btn.disabled = false;
@@ -643,15 +714,12 @@ function esc(s) {
 }
 
 function safeHref(url) {
-  // Só permite protocolos http:// e https://.
-  // Qualquer outra coisa (javascript:, data:, vbscript:) retorna '#invalid-url',
-  // que é inofensivo. esc() ainda é chamado para escapar chars HTML.
   try {
     const parsed = new URL(url);
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
       return esc(url);
     }
-  } catch (_) { /* URL malformada */ }
+  } catch (_) {}
   return '#invalid-url';
 }
 

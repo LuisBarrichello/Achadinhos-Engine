@@ -1,12 +1,21 @@
 """
 =============================================================
- Achadinhos do Momento — GUI Video Organizer
+ Achadinhos do Momento — GUI Video Organizer  (v2 — lotes)
  Interface gráfica para organizar vídeos sem usar o terminal
  Biblioteca: CustomTkinter (pip install customtkinter)
 =============================================================
 Como usar:
   pip install customtkinter
   python gui_organizer.py
+=============================================================
+Mudanças v2:
+  [LOTE-1] Seleção múltipla de vídeos (askopenfilenames)
+  [LOTE-2] Subpasta por produto: organized/<loja>/<data>_<slug>/
+  [LOTE-3] Vídeos numerados: clip_01.mp4, clip_02.mp4 …
+  [LOTE-4] CSV recebe 1 linha por lote (video_path = pasta)
+  [LOTE-5] Label mostra "X arquivos selecionados"
+  [LOTE-6] Checkbox "Manter dados no formulário após organizar"
+  [LOTE-7] Barra de progresso reflete cópia arquivo a arquivo
 =============================================================
 """
 
@@ -22,7 +31,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-# ─── Tema global ─────────────────────────────────────────────
+# ─── Tema global ──────────────────────────────────────────────
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
@@ -33,7 +42,7 @@ QUEUE_CSV  = Path(os.getenv("QUEUE_CSV", "./queue.csv"))
 STORES = ["shopee", "mercadolivre", "outros"]
 BADGES = ["HOT", "TOP", "OFERTA", "NOVO", "EXCLUSIVO", "LIMITADO", ""]
 
-# ─── Paleta de cores ─────────────────────────────────────────
+# ─── Paleta de cores ──────────────────────────────────────────
 COLOR = {
     "bg":           "#0a0a0b",
     "surface":      "#111113",
@@ -49,10 +58,11 @@ COLOR = {
     "shopee":       "#ee4d2d",
     "mercadolivre": "#ffe600",
     "outros":       "#a78bfa",
+    "accent_muted": "#2d1f52",  # fundo sutil para destaque de keywords
 }
 
 
-# ─── Helper: slugify ──────────────────────────────────────────
+# ─── Helper: slugify ─────────────────────────────────────────
 def slugify(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
     text = text.encode("ascii", "ignore").decode()
@@ -60,9 +70,10 @@ def slugify(text: str) -> str:
     return re.sub(r"[\s_-]+", "_", text).strip("_")
 
 
-# ─── Helper: salvar no CSV ────────────────────────────────────
+# ─── Helper: salvar no CSV (1 linha por lote) ─────────────────
 def save_to_csv(row: dict) -> None:
-    fieldnames = ["video_path", "title", "store", "badge", "url", "status"]
+    """[LOTE-4] Registra uma única entrada por produto/lote."""
+    fieldnames = ["video_path", "title", "store", "badge", "url", "status", "clip_count"]
     file_exists = QUEUE_CSV.exists()
     with open(QUEUE_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -71,15 +82,40 @@ def save_to_csv(row: dict) -> None:
         writer.writerow(row)
 
 
-# ─── Helper: copiar e renomear vídeo ──────────────────────────
-def organize_video(src_path: Path, title: str, store: str) -> Path:
+# ─── Helper: organizar lote de vídeos ────────────────────────
+def organize_batch(
+    src_paths : list[Path],
+    title     : str,
+    store     : str,
+    progress_cb,            # callable(current: int, total: int)
+) -> tuple[Path, list[Path]]:
+    """
+    [LOTE-2] Cria subpasta  organized/<loja>/<data>_<slug>/
+    [LOTE-3] Copia cada vídeo como clip_01.mp4, clip_02.mp4 …
+    [LOTE-7] Chama progress_cb(i, total) após cada cópia.
+
+    Retorna (pasta_destino, lista_de_arquivos_copiados).
+    """
     today     = datetime.now().strftime("%Y-%m-%d")
     slug      = slugify(title)
     store_dir = OUTPUT_DIR / store
-    store_dir.mkdir(parents=True, exist_ok=True)
-    dest      = store_dir / f"{today}_{slug}{src_path.suffix}"
-    shutil.copy2(src_path, dest)
-    return dest
+    # [LOTE-2] Subpasta específica do produto
+    project_dir = store_dir / f"{today}_{slug}"
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    total   = len(src_paths)
+    copied  = []
+
+    for i, src in enumerate(src_paths, start=1):
+        # [LOTE-3] Numera com padding: clip_01, clip_02 …
+        pad    = str(i).zfill(2)
+        dest   = project_dir / f"clip_{pad}{src.suffix.lower()}"
+        shutil.copy2(src, dest)
+        copied.append(dest)
+        # [LOTE-7] Atualiza progresso após cada arquivo copiado
+        progress_cb(i, total)
+
+    return project_dir, copied
 
 
 # ══════════════════════════════════════════════════════════════
@@ -91,24 +127,26 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Achadinhos — Video Organizer")
-        self.geometry("620x760")
-        self.minsize(580, 680)
+        self.title("Achadinhos — Video Organizer v2")
+        self.geometry("640x820")
+        self.minsize(600, 720)
         self.configure(fg_color=COLOR["bg"])
         self.resizable(True, True)
 
         # ── Estado ────────────────────────────────────────────
-        self.selected_video: Path | None = None
-        self.recent_items: list[dict]    = []  # histórico da sessão
+        # [LOTE-1] Lista de caminhos em vez de um único Path
+        self.selected_videos: list[Path] = []
+        self.recent_items:    list[dict] = []
 
         # ── Construção da UI ──────────────────────────────────
         self._build_header()
         self._build_form()
+        self._build_options()   # [LOTE-6] checkbox + configs
         self._build_actions()
         self._build_status()
         self._build_history()
 
-        self._log("Pronto. Selecione um vídeo para começar.", "muted")
+        self._log("Pronto. Selecione um ou mais vídeos para começar.", "muted")
 
     # ── Header ────────────────────────────────────────────────
     def _build_header(self):
@@ -123,6 +161,11 @@ class App(ctk.CTk):
         ctk.CTkLabel(inner, text="🛍️  Video Organizer",
                      font=ctk.CTkFont(family="", size=16, weight="bold"),
                      text_color=COLOR["text"]).pack(side="left")
+
+        # Badge de versão
+        ctk.CTkLabel(inner, text="v2 · lotes",
+                     font=ctk.CTkFont(size=10),
+                     text_color=COLOR["primary"]).pack(side="right", padx=(0, 8))
 
         ctk.CTkLabel(inner, text="Achadinhos do Momento",
                      font=ctk.CTkFont(size=11),
@@ -159,7 +202,6 @@ class App(ctk.CTk):
             text_color=COLOR["text"], dropdown_fg_color=COLOR["surface"],
             dropdown_hover_color=COLOR["surface_high"],
             font=ctk.CTkFont(size=13),
-            command=self._on_store_change,
         )
         self.combo_store.set("shopee")
         self.combo_store.pack(fill="x", pady=(4, 0))
@@ -178,11 +220,12 @@ class App(ctk.CTk):
         self.combo_badge.set("HOT")
         self.combo_badge.pack(fill="x", pady=(4, 0))
 
-        # Seleção de vídeo
-        self._label(wrapper, "Arquivo de Vídeo *")
+        # ── Seleção de vídeos ─────────────────────────────────
+        self._label(wrapper, "Arquivos de Vídeo *  (selecione um ou mais)")
         video_row = ctk.CTkFrame(wrapper, fg_color="transparent")
         video_row.pack(fill="x", pady=(4, 0))
 
+        # [LOTE-5] Label dinâmico
         self.lbl_video = ctk.CTkLabel(
             video_row,
             text="Nenhum arquivo selecionado",
@@ -192,27 +235,75 @@ class App(ctk.CTk):
             fg_color=COLOR["surface_high"],
             corner_radius=8,
         )
-        self.lbl_video.pack(side="left", fill="x", expand=True, ipady=8, ipadx=10, padx=(0, 8))
+        self.lbl_video.pack(side="left", fill="x", expand=True,
+                            ipady=8, ipadx=10, padx=(0, 8))
 
         ctk.CTkButton(
             video_row, text="📂  Selecionar",
-            width=120, height=38,
+            width=130, height=38,
             fg_color=COLOR["surface_high"],
             hover_color=COLOR["border"],
             border_color=COLOR["border"], border_width=1,
             text_color=COLOR["text"],
             font=ctk.CTkFont(size=13),
-            command=self._pick_video,
+            command=self._pick_videos,   # [LOTE-1]
+        ).pack(side="right")
+
+        # Preview compacto da lista de arquivos
+        self.lbl_files_detail = ctk.CTkLabel(
+            wrapper, text="",
+            text_color=COLOR["muted"],
+            font=ctk.CTkFont(size=10),
+            anchor="w",
+            wraplength=560,
+            justify="left",
+        )
+        self.lbl_files_detail.pack(fill="x", pady=(4, 0))
+
+    # ── Opções extras (checkbox) ───────────────────────────────
+    def _build_options(self):
+        """[LOTE-6] Área de opções com checkbox de manter dados."""
+        frame = ctk.CTkFrame(self,
+                             fg_color=COLOR["surface"],
+                             corner_radius=10,
+                             border_width=1,
+                             border_color=COLOR["border"])
+        frame.pack(fill="x", padx=20, pady=(14, 0))
+
+        inner = ctk.CTkFrame(frame, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=10)
+
+        # [LOTE-6] Variável do checkbox
+        self.keep_data_var = ctk.BooleanVar(value=False)
+
+        self.chk_keep_data = ctk.CTkCheckBox(
+            inner,
+            text="Manter dados no formulário após organizar",
+            variable=self.keep_data_var,
+            fg_color=COLOR["primary"],
+            hover_color=COLOR["primary_hover"],
+            border_color=COLOR["border"],
+            text_color=COLOR["text"],
+            font=ctk.CTkFont(size=12),
+            checkmark_color="#ffffff",
+        )
+        self.chk_keep_data.pack(side="left")
+
+        ctk.CTkLabel(
+            inner,
+            text="Útil ao organizar vários lotes do mesmo produto",
+            font=ctk.CTkFont(size=10),
+            text_color=COLOR["muted"],
         ).pack(side="right")
 
     # ── Botão principal ────────────────────────────────────────
     def _build_actions(self):
         frame = ctk.CTkFrame(self, fg_color="transparent")
-        frame.pack(fill="x", padx=20, pady=20)
+        frame.pack(fill="x", padx=20, pady=14)
 
         self.btn_organize = ctk.CTkButton(
             frame,
-            text="⚡  Organizar e Preparar",
+            text="⚡  Organizar Lote",
             height=52,
             font=ctk.CTkFont(size=15, weight="bold"),
             fg_color=COLOR["primary"],
@@ -222,17 +313,25 @@ class App(ctk.CTk):
         )
         self.btn_organize.pack(fill="x")
 
-        # Barra de progresso (oculta inicialmente)
+        # Legenda do progresso
+        self.lbl_progress = ctk.CTkLabel(
+            frame, text="",
+            font=ctk.CTkFont(size=10),
+            text_color=COLOR["muted"],
+        )
+        self.lbl_progress.pack(pady=(4, 0))
+
+        # Barra de progresso
         self.progress = ctk.CTkProgressBar(
-            frame, height=3, corner_radius=99,
+            frame, height=4, corner_radius=99,
             fg_color=COLOR["surface_high"],
             progress_color=COLOR["primary"],
         )
         self.progress.set(0)
-        self.progress.pack(fill="x", pady=(8, 0))
+        self.progress.pack(fill="x", pady=(4, 0))
         self.progress.pack_forget()
 
-    # ── Status ────────────────────────────────────────────────
+    # ── Status ─────────────────────────────────────────────────
     def _build_status(self):
         frame = ctk.CTkFrame(self,
                              fg_color=COLOR["surface"],
@@ -259,7 +358,10 @@ class App(ctk.CTk):
             frame, height=100,
             fg_color="transparent",
             text_color=COLOR["text"],
-            font=ctk.CTkFont(family="Courier New" if sys.platform=="win32" else "Menlo", size=12),
+            font=ctk.CTkFont(
+                family="Courier New" if sys.platform == "win32" else "Menlo",
+                size=12
+            ),
             border_width=0,
             activate_scrollbars=True,
             wrap="word",
@@ -278,22 +380,24 @@ class App(ctk.CTk):
 
         header = ctk.CTkFrame(frame, fg_color="transparent")
         header.pack(fill="x", padx=14, pady=(10, 0))
-        ctk.CTkLabel(header, text="Organizados Nesta Sessão",
+        ctk.CTkLabel(header, text="Lotes Organizados Nesta Sessão",
                      font=ctk.CTkFont(size=11),
                      text_color=COLOR["muted"]).pack(side="left")
-        self.lbl_count = ctk.CTkLabel(header, text="0 vídeos",
+        self.lbl_count = ctk.CTkLabel(header, text="0 lotes",
                                        font=ctk.CTkFont(size=11),
                                        text_color=COLOR["muted"])
         self.lbl_count.pack(side="right")
 
         self.history_frame = ctk.CTkScrollableFrame(
-            frame, fg_color="transparent", scrollbar_button_color=COLOR["border"])
+            frame, fg_color="transparent",
+            scrollbar_button_color=COLOR["border"])
         self.history_frame.pack(fill="both", expand=True, padx=10, pady=(6, 10))
 
         self.lbl_empty_history = ctk.CTkLabel(
             self.history_frame,
-            text="Nenhum vídeo organizado ainda.",
-            text_color=COLOR["muted"], font=ctk.CTkFont(size=12),
+            text="Nenhum lote organizado ainda.",
+            text_color=COLOR["muted"],
+            font=ctk.CTkFont(size=12),
         )
         self.lbl_empty_history.pack(pady=20)
 
@@ -324,9 +428,14 @@ class App(ctk.CTk):
             "error":   COLOR["error"],
             "warning": COLOR["warning"],
         }
-        prefix_map = {"error": "✗ ", "success": "✓ ", "warning": "⚠ ", "muted": "  "}
+        prefix_map = {
+            "error":   "✗ ",
+            "success": "✓ ",
+            "warning": "⚠ ",
+            "muted":   "  ",
+        }
         prefix = prefix_map.get(level, "→ ")
-        ts  = datetime.now().strftime("%H:%M:%S")
+        ts   = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {prefix}{msg}\n"
 
         self.txt_log.configure(state="normal")
@@ -339,41 +448,62 @@ class App(ctk.CTk):
         self.txt_log.delete("1.0", "end")
         self.txt_log.configure(state="disabled")
 
-    def _on_store_change(self, val):
-        pass  # pode adicionar visual feedback aqui
-
-    # ── Ação: Selecionar Vídeo ────────────────────────────────
-    def _pick_video(self):
-        path = filedialog.askopenfilename(
-            title="Selecionar Vídeo",
+    # ── Ação: Selecionar Vídeos ───────────────────────────────
+    def _pick_videos(self):
+        """[LOTE-1] Seleção múltipla com askopenfilenames."""
+        paths = filedialog.askopenfilenames(
+            title="Selecionar Vídeo(s) do Produto",
             filetypes=[
                 ("Vídeos", "*.mp4 *.mov *.avi *.mkv *.webm"),
                 ("Todos os arquivos", "*.*"),
             ]
         )
-        if not path:
+        if not paths:
             return
-        self.selected_video = Path(path)
-        name = self.selected_video.name
-        # Truncate display if too long
-        display = name if len(name) <= 40 else "…" + name[-37:]
-        self.lbl_video.configure(text=display, text_color=COLOR["text"])
-        self._log(f"Vídeo selecionado: {name}", "muted")
 
-    # ── Ação: Organizar ───────────────────────────────────────
+        self.selected_videos = [Path(p) for p in paths]
+        count = len(self.selected_videos)
+
+        # [LOTE-5] Label dinâmico
+        if count == 1:
+            name    = self.selected_videos[0].name
+            display = name if len(name) <= 42 else "…" + name[-39:]
+            self.lbl_video.configure(text=display, text_color=COLOR["text"])
+        else:
+            self.lbl_video.configure(
+                text=f"📹  {count} arquivos selecionados",
+                text_color=COLOR["primary"],
+            )
+
+        # Preview compacto dos nomes
+        names = [p.name for p in self.selected_videos]
+        preview = "  •  ".join(names[:4])
+        if count > 4:
+            preview += f"  …e mais {count - 4}"
+        self.lbl_files_detail.configure(text=preview)
+
+        self._log(f"{count} arquivo(s) selecionado(s): {', '.join(names[:3])}"
+                  + (f" …+{count-3}" if count > 3 else ""), "muted")
+
+    # ── Ação: Organizar Lote ───────────────────────────────────
     def _run(self):
-        # Validações
         title = self.entry_title.get().strip()
         url   = self.entry_url.get().strip()
         store = self.combo_store.get().strip()
         badge = self.combo_badge.get().strip().upper()
 
+        # Validações
         errors = []
-        if not title:            errors.append("Título é obrigatório.")
-        if not url:              errors.append("URL de afiliado é obrigatória.")
-        if not self.selected_video: errors.append("Nenhum vídeo selecionado.")
-        elif not self.selected_video.exists():
-            errors.append("Arquivo de vídeo não encontrado.")
+        if not title:
+            errors.append("Título é obrigatório.")
+        if not url:
+            errors.append("URL de afiliado é obrigatória.")
+        if not self.selected_videos:
+            errors.append("Nenhum vídeo selecionado.")
+        else:
+            missing = [v.name for v in self.selected_videos if not v.exists()]
+            if missing:
+                errors.append(f"Arquivo(s) não encontrado(s): {', '.join(missing)}")
 
         if errors:
             for e in errors:
@@ -381,39 +511,60 @@ class App(ctk.CTk):
             messagebox.showerror("Campos inválidos", "\n".join(errors))
             return
 
-        # Feedback visual
-        self.btn_organize.configure(state="disabled", text="Processando…")
-        self.progress.pack(fill="x", pady=(8, 0))
-        self.progress.set(0.3)
+        total = len(self.selected_videos)
+
+        # Feedback visual inicial
+        self.btn_organize.configure(state="disabled",
+                                    text=f"Copiando 0/{total}…")
+        self.lbl_progress.configure(text=f"Preparando {total} arquivo(s)…")
+        self.progress.pack(fill="x", pady=(4, 0))
+        self.progress.set(0)
         self.update_idletasks()
 
         try:
-            self._log(f"Iniciando organização: '{title}'")
-            self.progress.set(0.5)
-            self.update_idletasks()
+            self._log(f"Iniciando lote '{title}' — {total} clipe(s)")
 
-            # 1. Copiar e renomear vídeo
-            dest = organize_video(self.selected_video, title, store)
-            self.progress.set(0.75)
-            self.update_idletasks()
+            # [LOTE-7] Callback de progresso chamado a cada arquivo copiado
+            def _on_progress(current: int, total_: int):
+                ratio = current / total_
+                self.progress.set(ratio)
+                self.btn_organize.configure(
+                    text=f"Copiando {current}/{total_}…"
+                )
+                self.lbl_progress.configure(
+                    text=f"Copiado: clip_{str(current).zfill(2)} "
+                         f"({current}/{total_})"
+                )
+                self.update_idletasks()
 
-            # 2. Salvar no CSV
+            # [LOTE-2/3] Organizar e copiar todos os arquivos
+            project_dir, copied = organize_batch(
+                src_paths   = self.selected_videos,
+                title       = title,
+                store       = store,
+                progress_cb = _on_progress,
+            )
+
+            # [LOTE-4] Uma única linha no CSV apontando para a pasta
             row = {
-                "video_path": str(dest),
-                "title":      title,
-                "store":      store,
-                "badge":      badge,
-                "url":        url,
-                "status":     "done",
+                "video_path" : str(project_dir),
+                "title"      : title,
+                "store"      : store,
+                "badge"      : badge,
+                "url"        : url,
+                "status"     : "done",
+                "clip_count" : total,
             }
             save_to_csv(row)
+
             self.progress.set(1.0)
             self.update_idletasks()
 
-            # 3. Feedback
-            self._log(f"Vídeo salvo em: {dest}", "success")
+            self._log(f"Pasta criada: {project_dir}", "success")
+            self._log(f"{total} clipe(s) copiado(s) com sucesso", "success")
             self._log(f"Registrado no CSV: {QUEUE_CSV}", "success")
-            self._add_to_history(title, store, badge, dest)
+
+            self._add_to_history(title, store, badge, project_dir, total)
             self._reset_form()
 
         except Exception as e:
@@ -421,31 +572,58 @@ class App(ctk.CTk):
             messagebox.showerror("Erro", str(e))
 
         finally:
-            self.btn_organize.configure(state="normal", text="⚡  Organizar e Preparar")
-            self.after(1500, lambda: self.progress.pack_forget())
+            self.btn_organize.configure(state="normal",
+                                        text="⚡  Organizar Lote")
+            self.lbl_progress.configure(text="")
+            self.after(1800, lambda: self.progress.pack_forget())
 
     # ── Reset do formulário ───────────────────────────────────
     def _reset_form(self):
-        self.entry_title.delete(0, "end")
-        self.entry_url.delete(0, "end")
-        self.combo_store.set("shopee")
-        self.combo_badge.set("HOT")
-        self.selected_video = None
-        self.lbl_video.configure(text="Nenhum arquivo selecionado", text_color=COLOR["muted"])
+        """
+        [LOTE-6] Reseta sempre a seleção de arquivos.
+        Reseta título/URL/badge apenas se o checkbox NÃO estiver marcado.
+        """
+        # Seleção de arquivos: sempre limpa (cada lote = novos clipes)
+        self.selected_videos = []
+        self.lbl_video.configure(
+            text="Nenhum arquivo selecionado",
+            text_color=COLOR["muted"],
+        )
+        self.lbl_files_detail.configure(text="")
+
+        if not self.keep_data_var.get():
+            # Limpa o formulário completo
+            self.entry_title.delete(0, "end")
+            self.entry_url.delete(0, "end")
+            self.combo_store.set("shopee")
+            self.combo_badge.set("HOT")
 
     # ── Adiciona item no histórico ────────────────────────────
-    def _add_to_history(self, title: str, store: str, badge: str, dest: Path):
-        self.recent_items.append({"title": title, "store": store, "badge": badge, "dest": dest})
-        self.lbl_count.configure(text=f"{len(self.recent_items)} vídeo{'s' if len(self.recent_items)>1 else ''}")
+    def _add_to_history(
+        self,
+        title     : str,
+        store     : str,
+        badge     : str,
+        dest      : Path,
+        clip_count: int,
+    ):
+        self.recent_items.append({
+            "title": title, "store": store,
+            "badge": badge, "dest": dest,
+            "clips": clip_count,
+        })
+        n = len(self.recent_items)
+        self.lbl_count.configure(
+            text=f"{n} lote{'s' if n > 1 else ''}"
+        )
 
-        # Remove placeholder se for o primeiro item
-        if len(self.recent_items) == 1:
+        if n == 1:
             self.lbl_empty_history.pack_forget()
 
         store_colors = {
-            "shopee": COLOR["shopee"],
+            "shopee":       COLOR["shopee"],
             "mercadolivre": COLOR["mercadolivre"],
-            "outros": COLOR["outros"],
+            "outros":       COLOR["outros"],
         }
         accent = store_colors.get(store, COLOR["outros"])
 
@@ -453,40 +631,55 @@ class App(ctk.CTk):
             self.history_frame,
             fg_color=COLOR["surface_high"],
             corner_radius=8,
-            border_width=1, border_color=COLOR["border"],
+            border_width=1,
+            border_color=COLOR["border"],
         )
         item_frame.pack(fill="x", pady=(0, 6))
 
-        # Accent bar
-        bar = ctk.CTkFrame(item_frame, fg_color=accent, width=4, corner_radius=0)
-        bar.pack(side="left", fill="y")
+        # Barra de acento lateral
+        ctk.CTkFrame(item_frame, fg_color=accent,
+                     width=4, corner_radius=0).pack(side="left", fill="y")
 
         content = ctk.CTkFrame(item_frame, fg_color="transparent")
         content.pack(side="left", fill="both", expand=True, padx=10, pady=8)
 
+        # Linha superior: título + badge + contagem de clips
         top_row = ctk.CTkFrame(content, fg_color="transparent")
         top_row.pack(fill="x")
 
-        ctk.CTkLabel(top_row, text=title,
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=COLOR["text"], anchor="w").pack(side="left")
+        ctk.CTkLabel(
+            top_row, text=title,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR["text"], anchor="w",
+        ).pack(side="left")
 
         if badge:
-            ctk.CTkLabel(top_row, text=f" {badge}",
-                         font=ctk.CTkFont(size=10, weight="bold"),
-                         text_color=accent).pack(side="left", padx=(6, 0))
+            ctk.CTkLabel(
+                top_row, text=f" {badge}",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=accent,
+            ).pack(side="left", padx=(6, 0))
 
-        ctk.CTkLabel(content,
-                     text=str(dest),
-                     font=ctk.CTkFont(size=10),
-                     text_color=COLOR["muted"],
-                     anchor="w").pack(fill="x", pady=(2, 0))
+        # [LOTE] Pill com contagem de clipes
+        ctk.CTkLabel(
+            top_row,
+            text=f"  📹 {clip_count} clipe{'s' if clip_count > 1 else ''}",
+            font=ctk.CTkFont(size=10),
+            text_color=COLOR["muted"],
+        ).pack(side="left", padx=(8, 0))
+
+        # Caminho da pasta de destino
+        ctk.CTkLabel(
+            content,
+            text=str(dest),
+            font=ctk.CTkFont(size=10),
+            text_color=COLOR["muted"],
+            anchor="w",
+        ).pack(fill="x", pady=(2, 0))
 
 
 # ─── Entry point ──────────────────────────────────────────────
 if __name__ == "__main__":
-    # Garante que pasta de saída existe
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     app = App()
     app.mainloop()
