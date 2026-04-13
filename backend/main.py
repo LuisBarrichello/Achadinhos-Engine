@@ -1,17 +1,18 @@
 """
 =============================================================
- Achadinhos do Momento — Backend API  (v5 — infra resiliente)
+ Achadinhos do Momento — Backend API  (v6 — URL-only images)
  Stack : FastAPI + PostgreSQL (via SQLModel + psycopg2)
 =============================================================
-Mudanças v5 (Fase 1):
-  [PG-1]   Migração para PostgreSQL — remove SQLite deps
-  [BG-1]   Webhook retorna 200 imediato; processamento em background
-  [FZ-1]   Fuzzy matching de palavras-chave (acentos, variações)
-  [BB-1]   Upload de imagens via ImgBB (sem armazenamento local)
+Mudanças v6 (Fase 1 — item 4):
+  [IMG-URL] Remove toda lógica de upload físico de imagens.
+             O campo image_url agora é apenas uma string de URL
+             passada diretamente no corpo JSON do POST/PATCH.
+             Nenhum arquivo é salvo localmente; nenhum serviço
+             de terceiros (ImgBB etc.) é chamado.
+  [DM-CTR]  Contador de DMs enviadas hoje (para o dashboard).
 =============================================================
 """
 
-import base64
 import hashlib
 import hmac
 import logging
@@ -24,14 +25,13 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from fastapi import HTTPException
 from dotenv import load_dotenv
-from pathlib import Path
+from datetime import date
 
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, File, Header, HTTPException, Request, Depends, BackgroundTasks, UploadFile
+from fastapi import FastAPI, Header, HTTPException, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -51,7 +51,6 @@ def _require_env(key: str) -> str:
         )
     return val
 
-# [PG-1] PostgreSQL via DATABASE_URL (ex: postgresql://user:pass@host:5432/db)
 DATABASE_URL         = _require_env("DATABASE_URL")
 WEBHOOK_VERIFY_TOKEN = _require_env("WEBHOOK_VERIFY_TOKEN")
 META_APP_SECRET      = os.getenv("META_APP_SECRET", "")
@@ -59,21 +58,25 @@ PAGE_ACCESS_TOKEN    = os.getenv("PAGE_ACCESS_TOKEN", "")
 ADMIN_SECRET         = _require_env("ADMIN_SECRET")
 FRONTEND_ORIGIN      = os.getenv("FRONTEND_ORIGIN", "http://localhost:5500")
 
-# [BB-1] ImgBB — hospedagem gratuita de imagens
-IMGBB_API_KEY   = _require_env("IMGBB_API_KEY")
-IMGBB_UPLOAD_URL = "https://api.imgbb.com/1/upload"
-MAX_IMAGE_BYTES  = int(os.getenv("MAX_IMAGE_MB", "5")) * 1024 * 1024
-ALLOWED_MIME     = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-
 # ─── Banco de Dados (PostgreSQL) ─────────────────────────────
-# [PG-1] Remove check_same_thread (SQLite-only) e WAL pragma
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,        # re-testa conexões ociosas antes de usar
-    pool_size=5,               # conexões simultâneas (plano free geralmente suporta ~10)
+    pool_pre_ping=True,
+    pool_size=5,
     max_overflow=10,
-    pool_recycle=300,          # recicla conexões a cada 5 min (evita timeout do PG)
+    pool_recycle=300,
 )
+
+# ─── Contador de DMs em memória (reseta ao reiniciar o processo) ──
+# Para persistência entre restarts, mova para o banco.
+_dm_counters: dict[str, int] = {}   # chave: "YYYY-MM-DD", valor: contagem
+
+def _increment_dm_today() -> None:
+    today = str(date.today())
+    _dm_counters[today] = _dm_counters.get(today, 0) + 1
+
+def _dm_count_today() -> int:
+    return _dm_counters.get(str(date.today()), 0)
 
 
 # ─── Modelos ─────────────────────────────────────────────────
@@ -87,8 +90,8 @@ class Link(SQLModel, table=True):
     active      : bool          = True
     order       : int           = 0
     clicks      : int           = 0
+    # [IMG-URL] Apenas a URL da imagem — nenhum arquivo local
     image_url   : Optional[str] = None
-    # [PG-1] image_local removido — imagens ficam no ImgBB
     keyword     : Optional[str] = Field(default=None, index=True)
 
 
@@ -106,10 +109,6 @@ def get_session():
 
 
 def _run_migrations():
-    """
-    [PG-1] PostgreSQL usa ALTER TABLE ... ADD COLUMN IF NOT EXISTS
-    — sintaxe mais segura que o workaround do SQLite.
-    """
     migrations = [
         "ALTER TABLE link ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE link ADD COLUMN IF NOT EXISTS keyword TEXT",
@@ -171,94 +170,23 @@ app.add_middleware(
 
 
 # ══════════════════════════════════════════════════════════════
-# [FZ-1] FUZZY MATCHING — utilitários de normalização
+# FUZZY MATCHING
 # ══════════════════════════════════════════════════════════════
 
 def _normalize_keyword(text: str) -> str:
-    """
-    Pipeline de normalização para comparação fuzzy:
-      1. Unicode NFD → separa base da letra e diacrítoco
-      2. Remove diacríticos (acentos, cedilha, etc.)
-      3. Converte para ASCII puro
-      4. Maiúsculas
-      5. Remove qualquer coisa que não seja letra ou dígito
-      6. Remove espaços extras
-
-    Exemplos:
-      "querooo"   → "QUEROOO"   (não vai bater — use stem se necessário)
-      "Eu qro"    → "EUQRO"     (concatenado — o operador deve cadastrar igual)
-      "tênis"     → "TENIS"
-      "fônê!!"    → "FONE"
-      "  SHOPEE " → "SHOPEE"
-    """
     if not text:
         return ""
-    # Decompõe acentos
     nfd = unicodedata.normalize("NFD", text)
-    # Remove caracteres de combinação (diacríticos)
     ascii_text = nfd.encode("ascii", "ignore").decode("ascii")
-    # Maiúsculas, só alfanumérico
     return re.sub(r"[^A-Z0-9]", "", ascii_text.upper())
 
 
 def _keyword_matches(comment: str, keyword: str) -> bool:
-    """
-    Retorna True se o comentário normalizado contém a keyword normalizada.
-    Usa `in` em vez de `==` para tolerar mensagens como "EU QUERO FONE"
-    que devem bater na keyword "FONE".
-    """
     norm_comment = _normalize_keyword(comment)
     norm_keyword  = _normalize_keyword(keyword)
     if not norm_keyword:
         return False
     return norm_keyword in norm_comment
-
-
-# ══════════════════════════════════════════════════════════════
-# [BB-1] IMGBB — upload de imagens externo
-# ══════════════════════════════════════════════════════════════
-
-async def _upload_to_imgbb(data: bytes, filename: str) -> str:
-    """
-    Envia a imagem para o ImgBB e retorna a URL pública.
-    Lança HTTPException 502 se o upload falhar.
-
-    API ImgBB:
-      POST https://api.imgbb.com/1/upload
-      Form: key=<IMGBB_API_KEY>, image=<base64>, name=<filename>
-      Retorna: { "data": { "url": "https://i.ibb.co/..." }, "success": true }
-    """
-    b64 = base64.b64encode(data).decode("utf-8")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            IMGBB_UPLOAD_URL,
-            data={
-                "key"  : IMGBB_API_KEY,
-                "image": b64,
-                "name" : filename,
-            },
-        )
-
-    if resp.status_code != 200:
-        log.error(f"ImgBB erro {resp.status_code}: {resp.text[:200]}")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Falha ao enviar imagem para o ImgBB (HTTP {resp.status_code}). "
-                   "Verifique IMGBB_API_KEY e tente novamente."
-        )
-
-    body = resp.json()
-    if not body.get("success"):
-        log.error(f"ImgBB retornou success=false: {body}")
-        raise HTTPException(
-            status_code=502,
-            detail="ImgBB recusou o upload. Verifique a chave IMGBB_API_KEY."
-        )
-
-    url = body["data"].get("display_url") or body["data"].get("url")
-    log.info(f"📸 ImgBB: imagem hospedada em {url}")
-    return url
 
 
 # ─── Schemas ─────────────────────────────────────────────────
@@ -270,6 +198,7 @@ class LinkCreate(BaseModel):
     badge_color : str           = "#e11d48"
     active      : bool          = True
     order       : int           = 0
+    # [IMG-URL] Campo simples de URL de imagem — sem upload, sem FormData
     image_url   : Optional[str] = None
     keyword     : Optional[str] = None
 
@@ -287,6 +216,17 @@ class LinkCreate(BaseModel):
             return None
         return _normalize_keyword(v) or None
 
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, v: Optional[str]) -> Optional[str]:
+        """[IMG-URL] Valida que a URL de imagem é http/https, se fornecida."""
+        if not v:
+            return None
+        v = v.strip()
+        if not re.match(r'^https?://', v):
+            raise ValueError("image_url deve começar com http:// ou https://")
+        return v
+
 
 class LinkRead(BaseModel):
     id          : int
@@ -303,6 +243,15 @@ class LinkRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ─── Rota de status do sistema (para o dashboard) ────────────
+class SystemStatus(BaseModel):
+    db_connected    : bool
+    webhook_active  : bool
+    dm_count_today  : int
+    version         : str
+    image_mode      : str
 
 
 # ─── Helper: verificar secret admin ──────────────────────────
@@ -401,7 +350,7 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
-    # [BB-1] Imagem está no ImgBB, nenhum arquivo local para deletar
+    # [IMG-URL] Sem arquivo local para deletar — só remove o registro
     session.delete(link)
     session.commit()
     return {"ok": True}
@@ -425,63 +374,6 @@ def register_click(link_id: int, request: Request, session: Session = Depends(ge
         session.refresh(link)
 
     return {"clicks": link.clicks}
-
-
-# ─── Upload de Imagem → ImgBB ────────────────────────────────
-@app.post(
-    "/links/{link_id}/image",
-    response_model=LinkRead,
-    dependencies=[Depends(verify_admin)],
-    summary="Faz upload de imagem para o ImgBB e associa ao link",
-)
-async def upload_image(
-    link_id : int,
-    file    : UploadFile = File(...),
-    session : Session = Depends(get_session),
-):
-    link = session.get(Link, link_id)
-    if not link:
-        raise HTTPException(status_code=404, detail="Link não encontrado")
-
-    content_type = file.content_type or ""
-    if content_type not in ALLOWED_MIME:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Tipo não suportado: '{content_type}'. Use: {', '.join(ALLOWED_MIME)}"
-        )
-
-    data = await file.read()
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Arquivo muito grande. Máximo: {MAX_IMAGE_BYTES // (1024*1024)} MB"
-        )
-
-    # Valida magic bytes
-    _MAGIC: dict[str, list[bytes]] = {
-        "image/jpeg": [b"\xff\xd8\xff"],
-        "image/png":  [b"\x89PNG\r\n\x1a\n"],
-        "image/gif":  [b"GIF87a", b"GIF89a"],
-        "image/webp": [b"RIFF"],
-    }
-    expected_sigs = _MAGIC.get(content_type, [])
-    if expected_sigs and not any(data.startswith(sig) for sig in expected_sigs):
-        raise HTTPException(
-            status_code=422,
-            detail="Conteúdo não corresponde ao tipo declarado."
-        )
-
-    ext      = content_type.split("/")[-1].replace("jpeg", "jpg")
-    filename = f"achadinhos_link{link_id}.{ext}"
-
-    # [BB-1] Upload para ImgBB (lança HTTPException 502 se falhar)
-    public_url = await _upload_to_imgbb(data, filename)
-
-    link.image_url = public_url
-    session.commit()
-    session.refresh(link)
-    log.info(f"✅ Imagem do link #{link_id} hospedada: {public_url}")
-    return link
 
 
 # ══════════════════════════════════════════════════════════════
@@ -516,17 +408,12 @@ async def receive_webhook(
     background : BackgroundTasks,
 ):
     """
-    [BG-1] Retorna 200 OK IMEDIATAMENTE para a Meta evitar timeout/retry.
-    Todo o processamento (DB, DM) roda em background.
-
-    A Meta espera resposta em < 5s; sem isso ela re-envia o evento
-    gerando duplicatas e podendo desativar o webhook.
+    Retorna 200 OK imediatamente — processamento roda em background.
     """
     import json as _json
 
     body_bytes = await request.body()
 
-    # Valida assinatura HMAC antes de agendar — rejeição síncrona é segura
     if META_APP_SECRET:
         signature = request.headers.get("x-hub-signature-256", "")
         expected  = "sha256=" + hmac.new(
@@ -540,16 +427,11 @@ async def receive_webhook(
     except _json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Payload inválido")
 
-    # [BG-1] Agenda processamento em background e retorna 200 imediatamente
     background.add_task(_process_webhook_payload, payload)
     return {"status": "ok"}
 
 
 async def _process_webhook_payload(payload: dict) -> None:
-    """
-    [BG-1] Executa em background — sem risco de timeout da Meta.
-    [FZ-1] Usa _keyword_matches para comparação fuzzy.
-    """
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
@@ -564,9 +446,7 @@ async def _process_webhook_payload(payload: dict) -> None:
 
             log.info(f"📩 Comentário de {user_id}: '{raw_text}'")
 
-            # [FZ-1] Abre sessão dentro do background task
             with Session(engine) as session:
-                # Busca todos os links ativos com keyword configurada
                 links_com_keyword = session.exec(
                     select(Link)
                     .where(Link.keyword != None)  # noqa: E711
@@ -585,13 +465,13 @@ async def _process_webhook_payload(payload: dict) -> None:
                     f"Aqui está o link do produto:\n{matched_link.url}"
                 )
                 await send_dm(user_id, message)
+                _increment_dm_today()
                 log.info(
                     f"📨 DM enviada para {user_id} "
                     f"→ keyword '{matched_link.keyword}' → link #{matched_link.id}"
                 )
                 continue
 
-            # Fallback: tabela KeywordLink legada (também com fuzzy matching)
             with Session(engine) as session:
                 kw_links = session.exec(select(KeywordLink)).all()
                 legacy = next(
@@ -603,6 +483,7 @@ async def _process_webhook_payload(payload: dict) -> None:
             if legacy:
                 message = legacy.message.format(url=legacy.url)
                 await send_dm(user_id, message)
+                _increment_dm_today()
                 log.info(f"📨 DM (legado) enviada para {user_id}")
 
 
@@ -625,10 +506,37 @@ async def send_dm(recipient_id: str, message: str):
             log.error(f"❌ Graph API erro: {resp.text[:150]}")
 
 
+# ──────────────────────────────────────────────────────────────
+# ROTA: Status do Sistema (para o dashboard de admin)
+# ──────────────────────────────────────────────────────────────
+
+@app.get("/status", response_model=SystemStatus)
+def system_status():
+    """
+    Retorna indicadores de saúde usados pelo dashboard Admin.
+    Não requer autenticação — não expõe dados sensíveis.
+    """
+    db_ok = False
+    try:
+        import sqlalchemy
+        with engine.connect() as conn:
+            conn.execute(sqlalchemy.text("SELECT 1"))
+        db_ok = True
+    except Exception as exc:
+        log.error(f"DB health check falhou: {exc}")
+
+    return SystemStatus(
+        db_connected   = db_ok,
+        webhook_active = bool(WEBHOOK_VERIFY_TOKEN and META_APP_SECRET),
+        dm_count_today = _dm_count_today(),
+        version        = "6.0.0",
+        image_mode     = "url-only",
+    )
+
+
 # ─── Healthcheck ─────────────────────────────────────────────
 @app.get("/")
 def healthcheck():
-    # Testa conectividade com o banco (detecta falha de pool)
     db_ok = False
     try:
         import sqlalchemy
@@ -642,9 +550,8 @@ def healthcheck():
         "status"             : "🟢 online" if db_ok else "🔴 db_error",
         "db_connected"       : db_ok,
         "project"            : "Achadinhos do Momento",
-        "version"            : "5.0.0",
-        "image_hosting"      : "imgbb",
-        "max_image_mb"       : MAX_IMAGE_BYTES // (1024 * 1024),
+        "version"            : "6.0.0",
+        "image_mode"         : "url-only",   # [IMG-URL]
         "keyword_automation" : "enabled",
         "fuzzy_matching"     : "enabled",
     }

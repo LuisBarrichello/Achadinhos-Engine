@@ -6,24 +6,9 @@
 <title>Admin — Achadinhos do Momento</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    darkMode: 'class',
-    theme: {
-      extend: {
-        fontFamily: { sans: ['Geist', 'sans-serif'], mono: ['IBM Plex Mono', 'monospace'] },
-        colors: {
-          zinc: { 925: '#111113', 950: '#0a0a0b' },
-          violet: { 400: '#a78bfa', 500: '#8b5cf6' },
-        }
-      }
-    }
-  }
-</script>
 <style>
   * { box-sizing: border-box; }
   body { background: #0a0a0b; color: #e4e4e7; font-family: 'Geist', sans-serif; }
-
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 99px; }
@@ -37,29 +22,21 @@
   .field {
     width: 100%; background: #111113; border: 1px solid #27272a;
     color: #e4e4e7; padding: 8px 12px; border-radius: 8px;
-    font-size: 13px; font-family: inherit; outline: none;
-    transition: border-color 0.15s;
+    font-size: 13px; font-family: inherit; outline: none; transition: border-color 0.15s;
   }
   .field:focus { border-color: #7c3aed; }
   .field::placeholder { color: #52525b; }
-  select.field option { background: #111113; }
 
-  /* Keyword field special styling */
   .field-keyword {
-    text-transform: uppercase;
-    font-family: 'IBM Plex Mono', monospace;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    color: #a78bfa;
+    text-transform: uppercase; font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.08em; font-weight: 600; color: #a78bfa;
   }
-  .field-keyword::placeholder { text-transform: none; color: #52525b; font-weight: 400; letter-spacing: normal; font-family: 'Geist', sans-serif; }
+  .field-keyword::placeholder { text-transform:none; color:#52525b; font-weight:400; letter-spacing:normal; font-family:'Geist',sans-serif; }
 
   .btn-primary {
-    background: #7c3aed; color: white; border: none;
-    padding: 8px 16px; border-radius: 8px; font-size: 13px;
-    font-family: inherit; font-weight: 500; cursor: pointer;
-    transition: background 0.15s, transform 0.1s;
-    display: inline-flex; align-items: center; gap: 6px;
+    background: #7c3aed; color: white; border: none; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; font-family: inherit; font-weight: 500; cursor: pointer;
+    transition: background 0.15s, transform 0.1s; display: inline-flex; align-items: center; gap: 6px;
   }
   .btn-primary:hover { background: #6d28d9; }
   .btn-primary:active { transform: scale(0.98); }
@@ -67,8 +44,7 @@
 
   .btn-ghost {
     background: transparent; color: #a1a1aa; border: 1px solid #27272a;
-    padding: 6px 12px; border-radius: 8px; font-size: 12px;
-    font-family: inherit; cursor: pointer;
+    padding: 6px 12px; border-radius: 8px; font-size: 12px; font-family: inherit; cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
     display: inline-flex; align-items: center; gap: 5px;
   }
@@ -76,36 +52,50 @@
 
   .btn-danger {
     background: transparent; color: #f87171; border: 1px solid #3f1212;
-    padding: 6px 12px; border-radius: 8px; font-size: 12px;
-    font-family: inherit; cursor: pointer; transition: background 0.15s;
-    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 8px; font-size: 12px; font-family: inherit; cursor: pointer;
+    transition: background 0.15s; display: inline-flex; align-items: center; gap: 5px;
   }
   .btn-danger:hover { background: #1f0707; }
 
-  .card {
-    background: #111113; border: 1px solid #1c1c1f;
-    border-radius: 12px; overflow: hidden;
+  /* Tabs */
+  .tab-btn {
+    padding: 8px 18px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none; border-bottom: none; background: transparent; color: #71717a;
+    transition: background 0.15s, color 0.15s; display: inline-flex; align-items: center; gap: 6px;
   }
+  .tab-btn:hover { color: #e4e4e7; }
+  .tab-btn.active { background: #111113; color: #e4e4e7; border: 1px solid #1c1c1f; border-bottom: 1px solid #111113; position: relative; top: 1px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card { background: #111113; border: 1px solid #1c1c1f; border-radius: 12px; overflow: hidden; }
   .card-header {
     padding: 14px 16px; border-bottom: 1px solid #1c1c1f;
     display: flex; align-items: center; justify-content: space-between;
   }
 
-  /* [KW] Link row agora com 5 colunas: thumb | info | keyword | actions-col */
   .link-row {
-    display: grid; gap: 12px; padding: 14px 16px;
-    border-bottom: 1px solid #1c1c1f; align-items: center;
-    grid-template-columns: 48px 1fr auto auto;
-    transition: background 0.1s;
+    display: grid; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #1c1c1f;
+    align-items: center; grid-template-columns: 48px 1fr auto auto; transition: background 0.1s;
   }
   .link-row:last-child { border-bottom: none; }
   .link-row:hover { background: #0f0f11; }
 
+  /* Status cards */
+  .status-card {
+    background: #111113; border: 1px solid #1c1c1f; border-radius: 12px;
+    padding: 20px 24px; display: flex; align-items: center; gap: 16px;
+  }
+  .status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.green  { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+  .status-dot.red    { background: #ef4444; box-shadow: 0 0 8px #ef444488; }
+  .status-dot.yellow { background: #eab308; box-shadow: 0 0 8px #eab30888; }
+  .status-dot.pulse  { animation: pulse-dot 2s ease-in-out infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.85)} }
+
   #toast {
-    position: fixed; bottom: 24px; right: 24px;
-    padding: 10px 16px; border-radius: 10px;
-    font-size: 13px; font-weight: 500;
-    display: flex; align-items: center; gap: 8px;
+    position: fixed; bottom: 24px; right: 24px; padding: 10px 16px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px;
     transform: translateY(80px); opacity: 0;
     transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), opacity 0.3s;
     z-index: 999; pointer-events: none;
@@ -116,8 +106,7 @@
   #toast.info    { background: #1e1b4b; border: 1px solid #3730a3; color: #a5b4fc; }
 
   #modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(4px); z-index: 50;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 50;
     display: flex; align-items: center; justify-content: center;
     opacity: 0; pointer-events: none; transition: opacity 0.2s;
   }
@@ -131,69 +120,53 @@
 
   .badge-pill {
     display: inline-block; padding: 2px 8px; border-radius: 99px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
   }
-
-  /* [KW] Keyword pill — destaque roxo */
   .keyword-pill {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 10px; border-radius: 99px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
-    text-transform: uppercase;
-    background: rgba(124, 58, 237, 0.15);
-    border: 1px solid rgba(124, 58, 237, 0.35);
-    color: #a78bfa;
-    font-family: 'IBM Plex Mono', monospace;
-    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    background: rgba(124,58,237,.15); border: 1px solid rgba(124,58,237,.35); color: #a78bfa;
+    font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
   }
   .keyword-pill-empty {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 10px; border-radius: 99px;
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px;
     font-size: 10px; letter-spacing: 0.04em;
     background: #18181b; border: 1px dashed #3f3f46; color: #52525b;
-    font-family: 'IBM Plex Mono', monospace;
-    white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
   }
 
   @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
   .skeleton {
     background: linear-gradient(90deg, #18181b 25%, #222225 50%, #18181b 75%);
-    background-size: 600px 100%; animation: shimmer 1.4s infinite;
-    border-radius: 6px;
+    background-size: 600px 100%; animation: shimmer 1.4s infinite; border-radius: 6px;
   }
+  .stat-card { background: #111113; border: 1px solid #1c1c1f; border-radius: 12px; padding: 16px 20px; }
 
-  .progress-bar { height: 3px; background: #18181b; border-radius: 99px; overflow: hidden; }
-  .progress-fill { height: 100%; background: #7c3aed; width: 0; transition: width 0.3s; border-radius: 99px; }
-
-  input[type="color"] { -webkit-appearance: none; padding: 0; border: none; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; background: transparent; }
-  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-  input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+  .hint-box {
+    background: rgba(124,58,237,.08); border: 1px solid rgba(124,58,237,.2);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #a78bfa; line-height: 1.6;
+  }
+  .hint-box strong { color: #c4b5fd; }
+  .hint-box-blue {
+    background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #93c5fd; line-height: 1.6;
+  }
+  .hint-box-blue strong { color: #bfdbfe; }
 
   @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
   .fade-in { animation: fadeIn 0.3s ease forwards; }
 
-  .stat-card {
-    background: #111113; border: 1px solid #1c1c1f; border-radius: 12px;
-    padding: 16px 20px;
+  input[type="color"] {
+    -webkit-appearance:none; padding:0; border:none; cursor:pointer;
+    width:32px; height:32px; border-radius:6px; background:transparent;
   }
-
-  /* [KW] Hint box */
-  .hint-box {
-    background: rgba(124, 58, 237, 0.08);
-    border: 1px solid rgba(124, 58, 237, 0.2);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 12px;
-    color: #a78bfa;
-    line-height: 1.6;
-  }
-  .hint-box strong { color: #c4b5fd; }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding:0; }
+  input[type="color"]::-webkit-color-swatch { border:none; border-radius:6px; }
 </style>
 </head>
 <body>
 
-<!-- ══════════ AUTH OVERLAY ══════════ -->
+<!-- ══════════ AUTH ══════════ -->
 <div id="auth-overlay">
   <div style="width:100%;max-width:380px;padding:24px">
     <div style="text-align:center;margin-bottom:32px">
@@ -203,7 +176,7 @@
     </div>
     <div style="margin-bottom:12px">
       <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">API Base URL</label>
-      <input id="input-api-base" class="field" type="text" value="http://localhost:8000" placeholder="https://sua-api.onrender.com"/>
+      <input id="input-api-base" class="field" type="text" value="http://localhost:8000" placeholder="https://achadinhos-api.onrender.com"/>
     </div>
     <div style="margin-bottom:20px">
       <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Admin Secret</label>
@@ -218,15 +191,14 @@
 </div>
 
 <!-- ══════════ SHELL ══════════ -->
-<div id="app-shell" class="hidden" style="display:none;min-height:100vh">
+<div id="app-shell" style="display:none;min-height:100vh">
 
-  <!-- TOP BAR -->
-  <header style="position:sticky;top:0;z-index:40;background:rgba(10,10,11,0.8);backdrop-filter:blur(12px);border-bottom:1px solid #1c1c1f;height:52px;display:flex;align-items:center;padding:0 20px;gap:12px">
+  <header style="position:sticky;top:0;z-index:40;background:rgba(10,10,11,.8);backdrop-filter:blur(12px);border-bottom:1px solid #1c1c1f;height:52px;display:flex;align-items:center;padding:0 20px;gap:12px">
     <div style="display:flex;align-items:center;gap:8px;flex:1">
       <span style="font-size:16px">🛍️</span>
       <span style="font-size:13px;font-weight:600">Achadinhos</span>
       <span style="color:#27272a;margin:0 4px">/</span>
-      <span style="font-size:13px;color:#71717a" id="page-title">Ofertas</span>
+      <span id="page-title" style="font-size:13px;color:#71717a">Ofertas</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span id="api-url-display" style="font-size:11px;color:#52525b;font-family:'IBM Plex Mono',monospace"></span>
@@ -237,66 +209,126 @@
     </div>
   </header>
 
-  <!-- CONTENT -->
+  <!-- TAB BAR -->
+  <div style="background:#0a0a0b;border-bottom:1px solid #1c1c1f;padding:0 20px;padding-top:8px;display:flex;gap:4px">
+    <button class="tab-btn active" onclick="switchTab('ofertas')" id="tab-ofertas">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+      Ofertas
+    </button>
+    <button class="tab-btn" onclick="switchTab('status')" id="tab-status">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Status do Sistema
+    </button>
+  </div>
+
   <div style="max-width:960px;margin:0 auto;padding:28px 20px">
 
-    <!-- STATS ROW -->
-    <div id="stats-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
-      <div class="stat-card">
-        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Total de Ofertas</div>
-        <div id="stat-total" class="skeleton" style="height:28px;width:60px"></div>
+    <!-- ══ TAB OFERTAS ══ -->
+    <div id="panel-ofertas" class="tab-panel active">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+        <div class="stat-card"><div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Total Ofertas</div><div id="stat-total" class="skeleton" style="height:28px;width:60px"></div></div>
+        <div class="stat-card"><div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Cliques Totais</div><div id="stat-clicks" class="skeleton" style="height:28px;width:60px"></div></div>
+        <div class="stat-card"><div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Com Imagem</div><div id="stat-images" class="skeleton" style="height:28px;width:60px"></div></div>
+        <div class="stat-card"><div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Com Keyword</div><div id="stat-keywords" class="skeleton" style="height:28px;width:60px"></div></div>
       </div>
-      <div class="stat-card">
-        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Cliques Totais</div>
-        <div id="stat-clicks" class="skeleton" style="height:28px;width:60px"></div>
-      </div>
-      <div class="stat-card">
-        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Com Imagem</div>
-        <div id="stat-images" class="skeleton" style="height:28px;width:60px"></div>
-      </div>
-      <!-- [KW] Stat: com keyword -->
-      <div class="stat-card">
-        <div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Com Keyword</div>
-        <div id="stat-keywords" class="skeleton" style="height:28px;width:60px"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:13px;font-weight:600">Ofertas Cadastradas</span>
+            <span id="badge-count" style="background:#1c1c1f;color:#71717a;font-size:11px;padding:2px 8px;border-radius:99px"></span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-ghost" onclick="loadLinks()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Atualizar
+            </button>
+            <button class="btn-primary" onclick="openModal()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Nova Oferta
+            </button>
+          </div>
+        </div>
+        <div style="padding:12px 16px;border-bottom:1px solid #1c1c1f">
+          <input id="search-input" class="field" type="text" placeholder="Buscar título ou keyword…" oninput="filterLinks()" style="max-width:360px"/>
+        </div>
+        <div id="links-list">
+          <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:200px"></div><div class="skeleton" style="height:11px;width:140px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+          <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:160px"></div><div class="skeleton" style="height:11px;width:120px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+        </div>
       </div>
     </div>
 
-    <!-- MAIN CARD -->
-    <div class="card">
-      <div class="card-header">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:13px;font-weight:600">Ofertas Cadastradas</span>
-          <span id="badge-count" style="background:#1c1c1f;color:#71717a;font-size:11px;padding:2px 8px;border-radius:99px"></span>
+    <!-- ══ TAB STATUS ══ -->
+    <div id="panel-status" class="tab-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <h2 style="font-size:16px;font-weight:600;margin:0 0 4px">Status do Sistema</h2>
+          <p style="font-size:12px;color:#71717a;margin:0">Indicadores em tempo real da infraestrutura</p>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-ghost" onclick="loadLinks()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            Atualizar
-          </button>
-          <button class="btn-primary" onclick="openModal()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Nova Oferta
-          </button>
-        </div>
+        <button class="btn-ghost" onclick="loadStatus()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Atualizar
+        </button>
       </div>
 
-      <!-- SEARCH -->
-      <div style="padding:12px 16px;border-bottom:1px solid #1c1c1f">
-        <input id="search-input" class="field" type="text" placeholder="Buscar por título ou palavra-chave…" oninput="filterLinks()" style="max-width:360px"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+        <!-- Banco -->
+        <div class="status-card">
+          <div class="status-dot yellow pulse" id="dot-db"></div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;margin-bottom:3px">Banco de Dados</div>
+            <div id="label-db" style="font-size:12px;color:#71717a">Verificando…</div>
+          </div>
+          <div id="badge-db" style="font-size:10px;padding:3px 10px;border-radius:99px;background:#27272a;color:#71717a;font-weight:700;letter-spacing:.06em">—</div>
+        </div>
+
+        <!-- Webhook -->
+        <div class="status-card">
+          <div class="status-dot yellow pulse" id="dot-webhook"></div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;margin-bottom:3px">Webhook Instagram</div>
+            <div id="label-webhook" style="font-size:12px;color:#71717a">Verificando…</div>
+          </div>
+          <div id="badge-webhook" style="font-size:10px;padding:3px 10px;border-radius:99px;background:#27272a;color:#71717a;font-weight:700;letter-spacing:.06em">—</div>
+        </div>
+
+        <!-- DMs hoje -->
+        <div class="status-card">
+          <div style="width:36px;height:36px;border-radius:10px;background:#1c1c1f;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📨</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;margin-bottom:3px">DMs Enviadas Hoje</div>
+            <div style="font-size:12px;color:#71717a">Respostas automáticas por keyword</div>
+          </div>
+          <div id="dm-count" style="font-size:22px;font-weight:700;color:#a78bfa;min-width:32px;text-align:right">—</div>
+        </div>
+
+        <!-- Versão -->
+        <div class="status-card">
+          <div style="width:36px;height:36px;border-radius:10px;background:#1c1c1f;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔖</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;margin-bottom:3px">Versão da API</div>
+            <div id="api-version-label" style="font-size:12px;color:#71717a">—</div>
+          </div>
+          <div id="image-mode-badge" style="font-size:10px;padding:3px 10px;border-radius:99px;background:#1c1c1f;color:#52525b;font-weight:700;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace">—</div>
+        </div>
+
       </div>
 
-      <!-- LINKS LIST -->
-      <div id="links-list">
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:200px"></div><div class="skeleton" style="height:11px;width:140px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:160px"></div><div class="skeleton" style="height:11px;width:120px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
-        <div class="link-row"><div class="skeleton" style="height:44px;width:44px;border-radius:8px"></div><div style="display:flex;flex-direction:column;gap:8px"><div class="skeleton" style="height:14px;width:220px"></div><div class="skeleton" style="height:11px;width:160px"></div></div><div class="skeleton" style="height:24px;width:70px;border-radius:99px"></div><div class="skeleton" style="height:30px;width:80px"></div></div>
+      <div class="card">
+        <div class="card-header">
+          <span style="font-size:13px;font-weight:600">Resposta bruta de <code style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa">/status</code></span>
+          <span id="status-ts" style="font-size:11px;color:#52525b"></span>
+        </div>
+        <pre id="status-raw" style="padding:16px;margin:0;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#71717a;overflow:auto;max-height:220px">Clique em Atualizar…</pre>
       </div>
     </div>
 
   </div>
 </div>
 
-<!-- ══════════ MODAL CRIAR/EDITAR ══════════ -->
+<!-- ══════════ MODAL ══════════ -->
 <div id="modal-overlay" onclick="closeModalOnBg(event)">
   <div id="modal-box">
     <div style="padding:20px 20px 0;display:flex;align-items:center;justify-content:space-between">
@@ -308,7 +340,6 @@
     <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
       <input type="hidden" id="edit-id"/>
 
-      <!-- Título + Emoji -->
       <div style="display:grid;grid-template-columns:1fr 80px;gap:12px">
         <div>
           <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Título <span style="color:#f87171">*</span></label>
@@ -320,13 +351,34 @@
         </div>
       </div>
 
-      <!-- URL -->
       <div>
         <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL de Afiliado <span style="color:#f87171">*</span></label>
         <input id="f-url" class="field" type="url" placeholder="https://shopee.com.br/..."/>
       </div>
 
-      <!-- [KW] Keyword field — destaque visual -->
+      <!-- [IMG-URL] Substituiu o input type="file" por input type="url" -->
+      <div>
+        <label style="font-size:12px;color:#93c5fd;display:block;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          URL da Imagem
+          <span style="color:#52525b;font-size:11px;font-weight:400">(opcional)</span>
+        </label>
+        <input id="f-image-url" class="field" type="url"
+               placeholder="https://down-br.img.susercontent.com/file/..."
+               oninput="updateImagePreview()"/>
+        <div class="hint-box-blue" style="margin-top:8px">
+          <strong>📸 Como usar:</strong> abra o produto na Shopee, clique com o botão direito na foto principal
+          → <strong>"Copiar endereço da imagem"</strong> e cole aqui.
+          Não é necessário fazer upload de nenhum arquivo.
+        </div>
+        <div id="img-preview-wrap" style="margin-top:10px;display:none;align-items:center;gap:10px">
+          <img id="img-preview" src="" alt="preview"
+               style="height:72px;width:72px;object-fit:cover;border-radius:8px;border:1px solid #27272a"
+               onerror="document.getElementById('img-preview-wrap').style.display='none'"/>
+          <span style="font-size:11px;color:#52525b">Preview da imagem</span>
+        </div>
+      </div>
+
       <div>
         <label style="font-size:12px;color:#a78bfa;display:block;margin-bottom:6px;display:flex;align-items:center;gap:6px">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -335,15 +387,14 @@
         </label>
         <input id="f-keyword" class="field field-keyword" type="text"
                placeholder="Ex: FONE, TENIS, ASTRONAUTA"
-               oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"/>
+               oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,''); updateKwPreview()"/>
         <div class="hint-box" style="margin-top:8px">
-          <strong>📲 Como funciona:</strong> quando alguém comentar exatamente
+          <strong>📲 Como funciona:</strong> quando alguém comentar
           <strong id="kw-preview">esta palavra</strong> no seu post do Instagram,
           receberá o link deste produto automaticamente via DM.
         </div>
       </div>
 
-      <!-- Badge + Cor + Ordem -->
       <div style="display:grid;grid-template-columns:1fr 1fr 56px;gap:12px;align-items:end">
         <div>
           <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">Badge</label>
@@ -362,12 +413,6 @@
         </div>
       </div>
 
-      <!-- URL da Imagem -->
-      <div>
-        <label style="font-size:12px;color:#71717a;display:block;margin-bottom:6px">URL da Imagem <span style="color:#52525b">(opcional)</span></label>
-        <input id="f-image-url" class="field" type="url" placeholder="https://… (ou use o upload após salvar)"/>
-      </div>
-
       <div id="modal-error" style="background:#4c0519;border:1px solid #9f1239;color:#fda4af;padding:8px 12px;border-radius:8px;font-size:12px;display:none"></div>
     </div>
     <div style="padding:0 20px 20px;display:flex;gap:8px;justify-content:flex-end">
@@ -380,129 +425,86 @@
   </div>
 </div>
 
-<!-- ══════════ TOAST ══════════ -->
 <div id="toast"></div>
 
-<!-- ══════════ JAVASCRIPT ══════════ -->
 <script>
-// ── State ─────────────────────────────────────────
-let API_BASE  = '';
-let ADMIN_KEY = '';
-let allLinks  = [];
+let API_BASE='', ADMIN_KEY='', allLinks=[];
 
-// ── Auth ──────────────────────────────────────────
-async function doLogin() {
-  const base   = document.getElementById('input-api-base').value.trim().replace(/\/$/, '');
-  const secret = document.getElementById('input-secret').value.trim();
-  const errEl  = document.getElementById('auth-error');
-
-  if (!base || !secret) {
-    errEl.textContent = 'Preencha todos os campos.';
-    errEl.style.display = 'block'; return;
-  }
-
-  errEl.style.display = 'none';
-
-  try {
-    const res = await fetch(`${base}/links`, { headers: { 'x-admin-secret': secret } });
-    if (res.status === 403) {
-      errEl.textContent = '❌ Senha incorreta (403 Forbidden).';
-      errEl.style.display = 'block'; return;
-    }
-    API_BASE  = base;
-    ADMIN_KEY = secret;
+async function doLogin(){
+  const base=document.getElementById('input-api-base').value.trim().replace(/\/$/,'');
+  const secret=document.getElementById('input-secret').value.trim();
+  const err=document.getElementById('auth-error');
+  if(!base||!secret){err.textContent='Preencha todos os campos.';err.style.display='block';return;}
+  err.style.display='none';
+  try{
+    const res=await fetch(`${base}/links`,{headers:{'x-admin-secret':secret}});
+    if(res.status===403){err.textContent='❌ Senha incorreta (403).';err.style.display='block';return;}
+    API_BASE=base; ADMIN_KEY=secret;
     document.getElementById('auth-overlay').classList.add('hidden');
-    document.getElementById('app-shell').style.display = 'block';
-    document.getElementById('api-url-display').textContent = base;
-    allLinks = await res.json();
-    renderLinks(allLinks);
-    updateStats(allLinks);
-  } catch (e) {
-    errEl.textContent = `Não foi possível conectar: ${e.message}`;
-    errEl.style.display = 'block';
-  }
+    document.getElementById('app-shell').style.display='block';
+    document.getElementById('api-url-display').textContent=base;
+    allLinks=await res.json(); renderLinks(allLinks); updateStats(allLinks);
+  }catch(e){err.textContent=`Não foi possível conectar: ${e.message}`;err.style.display='block';}
 }
 
-function doLogout() {
-  API_BASE = ''; ADMIN_KEY = ''; allLinks = [];
+function doLogout(){
+  API_BASE='';ADMIN_KEY='';allLinks=[];
   document.getElementById('auth-overlay').classList.remove('hidden');
-  document.getElementById('app-shell').style.display = 'none';
-  document.getElementById('input-secret').value = '';
+  document.getElementById('app-shell').style.display='none';
+  document.getElementById('input-secret').value='';
 }
 
-// ── API helpers ───────────────────────────────────
-const headers = (extra={}) => ({ 'Content-Type':'application/json', 'x-admin-secret': ADMIN_KEY, ...extra });
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  document.getElementById(`panel-${name}`).classList.add('active');
+  document.getElementById('page-title').textContent=name==='status'?'Status do Sistema':'Ofertas';
+  if(name==='status') loadStatus();
+}
 
-async function apiFetch(path, opts={}) {
-  const res = await fetch(API_BASE + path, { ...opts, headers: headers(opts.headers || {}) });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`${res.status}: ${body}`);
-  }
+const hdrs=(e={})=>({'Content-Type':'application/json','x-admin-secret':ADMIN_KEY,...e});
+async function apiFetch(path,opts={}){
+  const res=await fetch(API_BASE+path,{...opts,headers:hdrs(opts.headers||{})});
+  if(!res.ok){const b=await res.text();throw new Error(`${res.status}: ${b}`);}
   return res.json();
 }
 
-// ── Load links ────────────────────────────────────
-async function loadLinks() {
-  try {
-    allLinks = await apiFetch('/links');
-    renderLinks(allLinks);
-    updateStats(allLinks);
-    toast('Ofertas atualizadas', 'success');
-  } catch(e) { toast(`Erro: ${e.message}`, 'error'); }
+async function loadLinks(){
+  try{allLinks=await apiFetch('/links');renderLinks(allLinks);updateStats(allLinks);toast('Atualizado','success');}
+  catch(e){toast(`Erro: ${e.message}`,'error');}
 }
 
-// ── Stats ─────────────────────────────────────────
-function updateStats(links) {
-  document.getElementById('stat-total').textContent  = links.length;
-  document.getElementById('stat-total').className    = 'fade-in';
-  document.getElementById('stat-clicks').textContent = links.reduce((a,l)=>a+l.clicks,0).toLocaleString('pt-BR');
-  document.getElementById('stat-clicks').className   = 'fade-in';
-  document.getElementById('stat-images').textContent = links.filter(l=>l.image_url).length;
-  document.getElementById('stat-images').className   = 'fade-in';
-  // [KW] Stat: links com keyword configurada
-  document.getElementById('stat-keywords').textContent = links.filter(l=>l.keyword).length;
-  document.getElementById('stat-keywords').className   = 'fade-in';
-  document.getElementById('badge-count').textContent = links.length;
+function updateStats(links){
+  const s=(id,v)=>{const el=document.getElementById(id);el.textContent=v;el.className='fade-in';};
+  s('stat-total',links.length);
+  s('stat-clicks',links.reduce((a,l)=>a+l.clicks,0).toLocaleString('pt-BR'));
+  s('stat-images',links.filter(l=>l.image_url).length);
+  s('stat-keywords',links.filter(l=>l.keyword).length);
+  document.getElementById('badge-count').textContent=links.length;
 }
 
-function filterLinks() {
-  const q = document.getElementById('search-input').value.toLowerCase();
-  renderLinks(allLinks.filter(l =>
-    l.title.toLowerCase().includes(q) ||
-    (l.keyword || '').toLowerCase().includes(q)
-  ));
+function filterLinks(){
+  const q=document.getElementById('search-input').value.toLowerCase();
+  renderLinks(allLinks.filter(l=>l.title.toLowerCase().includes(q)||(l.keyword||'').toLowerCase().includes(q)));
 }
 
-// ── Render ────────────────────────────────────────
-function renderLinks(links) {
-  const list = document.getElementById('links-list');
-  if (links.length === 0) {
-    list.innerHTML = `<div style="padding:40px;text-align:center;color:#52525b;font-size:13px">Nenhuma oferta encontrada</div>`;
-    return;
-  }
-  list.innerHTML = links.map(link => buildRow(link)).join('');
+function renderLinks(links){
+  const list=document.getElementById('links-list');
+  if(!links.length){list.innerHTML=`<div style="padding:40px;text-align:center;color:#52525b;font-size:13px">Nenhuma oferta encontrada</div>`;return;}
+  list.innerHTML=links.map(buildRow).join('');
 }
 
-function buildRow(link) {
-  const badgeHtml = link.badge
-    ? `<span class="badge-pill" style="background:${link.badge_color}22;color:${link.badge_color};border:1px solid ${link.badge_color}44">${esc(link.badge)}</span>`
-    : '';
-
-  // [KW] Keyword pill na row
-  const keywordHtml = link.keyword
-    ? `<div class="keyword-pill">
-         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-         ${esc(link.keyword)}
-       </div>`
-    : `<div class="keyword-pill-empty">sem keyword</div>`;
-
-  const imgPreview = link.image_url
-    ? `<img src="${esc(link.image_url)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #27272a" onerror="this.style.display='none';this.nextSibling.style.display='flex'"  /><div style="display:none;width:44px;height:44px;background:#18181b;border-radius:8px;align-items:center;justify-content:center;font-size:18px">${esc(link.emoji||'🛍️')}</div>`
-    : `<div style="width:44px;height:44px;background:#18181b;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #1c1c1f">${esc(link.emoji||'🛍️')}</div>`;
-
+function buildRow(link){
+  const badgeHtml=link.badge?`<span class="badge-pill" style="background:${link.badge_color}22;color:${link.badge_color};border:1px solid ${link.badge_color}44">${esc(link.badge)}</span>`:'';
+  const kwHtml=link.keyword
+    ?`<div class="keyword-pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>${esc(link.keyword)}</div>`
+    :`<div class="keyword-pill-empty">sem keyword</div>`;
+  const imgHtml=link.image_url
+    ?`<img src="${esc(link.image_url)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #27272a" onerror="this.style.display='none';this.nextSibling.style.display='flex'"/><div style="display:none;width:44px;height:44px;background:#18181b;border-radius:8px;align-items:center;justify-content:center;font-size:18px">${esc(link.emoji||'🛍️')}</div>`
+    :`<div style="width:44px;height:44px;background:#18181b;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #1c1c1f">${esc(link.emoji||'🛍️')}</div>`;
   return `<div class="link-row fade-in">
-    <div style="position:relative">${imgPreview}</div>
+    <div>${imgHtml}</div>
     <div style="min-width:0">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
         <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">${esc(link.title)}</span>
@@ -514,220 +516,166 @@ function buildRow(link) {
         <span style="color:#52525b;font-size:11px">${link.clicks} cliques</span>
       </div>
     </div>
-    <!-- [KW] Coluna da keyword -->
-    <div style="display:flex;align-items:center">${keywordHtml}</div>
-    <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
-      <div style="display:flex;gap:6px">
-        <button class="btn-ghost" onclick="openEditModal(${link.id})" title="Editar">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          Editar
-        </button>
-        <button class="btn-danger" onclick="deleteLink(${link.id},'${esc(link.title).replace(/'/g,"\\'")}')">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          Excluir
-        </button>
-      </div>
-      <label class="btn-ghost" style="cursor:pointer;font-size:11px" title="Upload de imagem">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        Imagem
-        <input type="file" accept="image/*" style="display:none" onchange="uploadImage(${link.id}, this)"/>
-      </label>
+    <div style="display:flex;align-items:center">${kwHtml}</div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button class="btn-ghost" onclick="openEditModal(${link.id})">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Editar
+      </button>
+      <button class="btn-danger" onclick="deleteLink(${link.id},'${esc(link.title).replace(/'/g,"\\'")}')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        Excluir
+      </button>
     </div>
   </div>`;
 }
 
-// ── Image Upload ──────────────────────────────────
-async function uploadImage(linkId, inputEl) {
-  if (!inputEl.files[0]) return;
-  const file    = inputEl.files[0];
-  const maxMb   = 5;
-  if (file.size > maxMb * 1024 * 1024) {
-    toast(`Imagem muito grande (máx ${maxMb}MB)`, 'error'); return;
-  }
-
-  toast('Enviando imagem…', 'info');
-  const form = new FormData();
-  form.append('file', file);
-
-  try {
-    const res = await fetch(`${API_BASE}/links/${linkId}/image`, {
-      method: 'POST',
-      headers: { 'x-admin-secret': ADMIN_KEY },
-      body: form
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const updated = await res.json();
-    const idx = allLinks.findIndex(l => l.id === linkId);
-    if (idx >= 0) allLinks[idx] = updated;
-    filterLinks();
-    toast('Imagem enviada com sucesso ✓', 'success');
-  } catch(e) {
-    toast(`Erro no upload: ${e.message}`, 'error');
-  }
+async function deleteLink(id,title){
+  if(!confirm(`Excluir "${title}"?\nEsta ação não pode ser desfeita.`)) return;
+  try{
+    await apiFetch(`/links/${id}`,{method:'DELETE'});
+    allLinks=allLinks.filter(l=>l.id!==id);filterLinks();updateStats(allLinks);
+    toast('Oferta excluída','success');
+  }catch(e){toast(`Erro: ${e.message}`,'error');}
 }
 
-// ── Delete ────────────────────────────────────────
-async function deleteLink(id, title) {
-  if (!confirm(`Excluir "${title}"?\n\nEsta ação não pode ser desfeita.`)) return;
-  try {
-    await apiFetch(`/links/${id}`, { method: 'DELETE' });
-    allLinks = allLinks.filter(l => l.id !== id);
-    filterLinks();
-    updateStats(allLinks);
-    toast('Oferta excluída', 'success');
-  } catch(e) { toast(`Erro: ${e.message}`, 'error'); }
-}
-
-// ── Modal ─────────────────────────────────────────
-function openModal() {
-  document.getElementById('modal-title').textContent = 'Nova Oferta';
-  document.getElementById('edit-id').value = '';
-  document.getElementById('f-title').value = '';
-  document.getElementById('f-url').value = '';
-  document.getElementById('f-emoji').value = '🛍️';
-  document.getElementById('f-badge').value = '';
-  document.getElementById('f-badge-color').value = '#e11d48';
-  document.getElementById('f-badge-color-pick').value = '#e11d48';
-  document.getElementById('f-order').value = '10';
-  document.getElementById('f-image-url').value = '';
-  // [KW] limpa keyword
-  document.getElementById('f-keyword').value = '';
+function _clearModal(){
+  ['edit-id','f-title','f-url','f-badge','f-image-url','f-keyword'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-emoji').value='🛍️';
+  document.getElementById('f-badge-color').value='#e11d48';
+  document.getElementById('f-badge-color-pick').value='#e11d48';
+  document.getElementById('f-order').value='10';
+  document.getElementById('img-preview-wrap').style.display='none';
+  document.getElementById('modal-error').style.display='none';
   updateKwPreview();
-  document.getElementById('modal-error').style.display = 'none';
+}
+
+function openModal(){
+  document.getElementById('modal-title').textContent='Nova Oferta';
+  _clearModal();
   document.getElementById('modal-overlay').classList.add('open');
-  setTimeout(()=>document.getElementById('f-title').focus(), 200);
+  setTimeout(()=>document.getElementById('f-title').focus(),200);
 }
 
-function openEditModal(id) {
-  const link = allLinks.find(l => l.id === id);
-  if (!link) return;
-  document.getElementById('modal-title').textContent = 'Editar Oferta';
-  document.getElementById('edit-id').value = id;
-  document.getElementById('f-title').value = link.title;
-  document.getElementById('f-url').value = link.url;
-  document.getElementById('f-emoji').value = link.emoji || '🛍️';
-  document.getElementById('f-badge').value = link.badge || '';
-  document.getElementById('f-badge-color').value = link.badge_color || '#e11d48';
-  document.getElementById('f-badge-color-pick').value = link.badge_color || '#e11d48';
-  document.getElementById('f-order').value = link.order;
-  document.getElementById('f-image-url').value = link.image_url || '';
-  // [KW] preenche keyword
-  document.getElementById('f-keyword').value = link.keyword || '';
-  updateKwPreview();
-  document.getElementById('modal-error').style.display = 'none';
+function openEditModal(id){
+  const link=allLinks.find(l=>l.id===id); if(!link) return;
+  _clearModal();
+  document.getElementById('modal-title').textContent='Editar Oferta';
+  document.getElementById('edit-id').value=id;
+  document.getElementById('f-title').value=link.title;
+  document.getElementById('f-url').value=link.url;
+  document.getElementById('f-emoji').value=link.emoji||'🛍️';
+  document.getElementById('f-badge').value=link.badge||'';
+  document.getElementById('f-badge-color').value=link.badge_color||'#e11d48';
+  document.getElementById('f-badge-color-pick').value=link.badge_color||'#e11d48';
+  document.getElementById('f-order').value=link.order;
+  document.getElementById('f-image-url').value=link.image_url||'';
+  document.getElementById('f-keyword').value=link.keyword||'';
+  updateKwPreview(); updateImagePreview();
   document.getElementById('modal-overlay').classList.add('open');
 }
 
-function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
-function closeModalOnBg(e) { if (e.target === document.getElementById('modal-overlay')) closeModal(); }
+function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
+function closeModalOnBg(e){if(e.target===document.getElementById('modal-overlay'))closeModal();}
+function syncColorPicker(){const v=document.getElementById('f-badge-color').value;if(/^#[0-9A-Fa-f]{6}$/.test(v))document.getElementById('f-badge-color-pick').value=v;}
+function updateKwPreview(){const kw=document.getElementById('f-keyword').value.trim();document.getElementById('kw-preview').textContent=kw?`"${kw}"`:'esta palavra';}
 
-function syncColorPicker() {
-  const val = document.getElementById('f-badge-color').value;
-  if (/^#[0-9A-Fa-f]{6}$/.test(val)) document.getElementById('f-badge-color-pick').value = val;
+// [IMG-URL] Preview ao vivo
+function updateImagePreview(){
+  const url=document.getElementById('f-image-url').value.trim();
+  const wrap=document.getElementById('img-preview-wrap');
+  const img=document.getElementById('img-preview');
+  if(url&&/^https?:\/\//.test(url)){img.src=url;wrap.style.display='flex';}
+  else{wrap.style.display='none';}
 }
 
-// [KW] Atualiza o preview da keyword no hint box
-function updateKwPreview() {
-  const kw = document.getElementById('f-keyword').value.trim();
-  document.getElementById('kw-preview').textContent = kw ? `"${kw}"` : 'esta palavra';
-}
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('f-keyword').addEventListener('input', updateKwPreview);
-});
+// [IMG-URL] Payload é JSON puro — sem FormData
+async function saveLink(){
+  const editId=document.getElementById('edit-id').value;
+  const title=document.getElementById('f-title').value.trim();
+  const url=document.getElementById('f-url').value.trim();
+  const errEl=document.getElementById('modal-error');
+  errEl.style.display='none';
+  if(!title){errEl.textContent='O título é obrigatório.';errEl.style.display='block';return;}
+  if(!url){errEl.textContent='A URL é obrigatória.';errEl.style.display='block';return;}
+  try{new URL(url);}catch{errEl.textContent='URL inválida.';errEl.style.display='block';return;}
 
-// ── Save Link ─────────────────────────────────────
-async function saveLink() {
-  const editId = document.getElementById('edit-id').value;
-  const title  = document.getElementById('f-title').value.trim();
-  const url    = document.getElementById('f-url').value.trim();
-  const errEl  = document.getElementById('modal-error');
-
-  errEl.style.display = 'none';
-  if (!title) { errEl.textContent = 'O título é obrigatório.'; errEl.style.display='block'; return; }
-  if (!url)   { errEl.textContent = 'A URL é obrigatória.'; errEl.style.display='block'; return; }
-  try { new URL(url); } catch { errEl.textContent = 'URL inválida.'; errEl.style.display='block'; return; }
-
-  // [KW] Inclui keyword no payload — backend normaliza para maiúsculas
-  const rawKeyword = document.getElementById('f-keyword').value.trim();
-
-  const body = {
-    title,
-    url,
-    emoji       : document.getElementById('f-emoji').value || '🛍️',
-    badge       : document.getElementById('f-badge').value.toUpperCase() || null,
-    badge_color : document.getElementById('f-badge-color').value,
-    order       : parseInt(document.getElementById('f-order').value) || 0,
-    image_url   : document.getElementById('f-image-url').value || null,
-    keyword     : rawKeyword || null,  // [KW]
+  const body={
+    title, url,
+    emoji:document.getElementById('f-emoji').value||'🛍️',
+    badge:document.getElementById('f-badge').value.toUpperCase()||null,
+    badge_color:document.getElementById('f-badge-color').value,
+    order:parseInt(document.getElementById('f-order').value)||0,
+    image_url:document.getElementById('f-image-url').value.trim()||null,  // [IMG-URL] string
+    keyword:document.getElementById('f-keyword').value.trim()||null,
   };
 
-  const btn = document.getElementById('btn-save');
-  btn.disabled = true; btn.textContent = 'Salvando…';
+  const btn=document.getElementById('btn-save');
+  btn.disabled=true; btn.textContent='Salvando…';
 
-  try {
+  try{
     let updated;
-    if (editId) {
-      updated = await apiFetch(`/links/${editId}`, { method:'PATCH', body: JSON.stringify(body) });
-      const idx = allLinks.findIndex(l => l.id === parseInt(editId));
-      if (idx >= 0) allLinks[idx] = updated;
-    } else {
-      updated = await apiFetch('/links', { method:'POST', body: JSON.stringify(body) });
+    if(editId){
+      updated=await apiFetch(`/links/${editId}`,{method:'PATCH',body:JSON.stringify(body)});
+      const idx=allLinks.findIndex(l=>l.id===parseInt(editId));
+      if(idx>=0) allLinks[idx]=updated;
+    }else{
+      updated=await apiFetch('/links',{method:'POST',body:JSON.stringify(body)});
       allLinks.unshift(updated);
     }
-    filterLinks();
-    updateStats(allLinks);
-    closeModal();
-    toast(editId ? 'Oferta atualizada ✓' : 'Oferta criada com sucesso ✓', 'success');
-  } catch(e) {
-    // [KW] Trata conflito de keyword (409)
-    let msg = e.message;
-    if (msg.includes('409')) {
-      const detail = msg.match(/"detail":"([^"]+)"/);
-      msg = detail ? detail[1] : 'Palavra-chave já está em uso por outro produto.';
-    }
-    errEl.textContent = `Erro: ${msg}`;
-    errEl.style.display = 'block';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Salvar Oferta';
+    filterLinks();updateStats(allLinks);closeModal();
+    toast(editId?'Oferta atualizada ✓':'Oferta criada ✓','success');
+  }catch(e){
+    let msg=e.message;
+    if(msg.includes('409')){const d=msg.match(/"detail":"([^"]+)"/);msg=d?d[1]:'Keyword já em uso.';}
+    errEl.textContent=`Erro: ${msg}`;errEl.style.display='block';
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Salvar Oferta';
   }
 }
 
-// ── Toast ──────────────────────────────────────────
-let toastTimer;
-function toast(msg, type='info') {
-  const el = document.getElementById('toast');
-  const icons = {
-    success: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
-    error:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-    info:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-  };
-  el.innerHTML = (icons[type]||'') + msg;
-  el.className = `show ${type}`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>{ el.className = type; }, 3000);
+// ══ Status dashboard ══
+async function loadStatus(){
+  try{
+    const data=await fetch(`${API_BASE}/status`).then(r=>r.json());
+    _setStatusCard('db',data.db_connected,
+      data.db_connected?'PostgreSQL conectado':'Falha na conexão com o banco',
+      data.db_connected?'ONLINE':'OFFLINE');
+    _setStatusCard('webhook',data.webhook_active,
+      data.webhook_active?'Token e App Secret configurados':'Token ou App Secret ausente',
+      data.webhook_active?'ATIVO':'INATIVO');
+    document.getElementById('dm-count').textContent=data.dm_count_today??0;
+    document.getElementById('api-version-label').textContent=`v${data.version}`;
+    document.getElementById('image-mode-badge').textContent=data.image_mode;
+    document.getElementById('status-raw').textContent=JSON.stringify(data,null,2);
+    document.getElementById('status-ts').textContent='Atualizado: '+new Date().toLocaleTimeString('pt-BR');
+  }catch(e){
+    document.getElementById('status-raw').textContent=`Erro ao buscar /status:\n${e.message}`;
+    _setStatusCard('db',false,'API inacessível','ERRO');
+    _setStatusCard('webhook',false,'API inacessível','ERRO');
+  }
 }
 
-// ── XSS escape ────────────────────────────────────
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+function _setStatusCard(key,ok,label,badge){
+  const dot=document.getElementById(`dot-${key}`);
+  const lbl=document.getElementById(`label-${key}`);
+  const bdg=document.getElementById(`badge-${key}`);
+  dot.className=`status-dot ${ok?'green':'red'}`;
+  lbl.textContent=label;
+  bdg.textContent=badge;
+  bdg.style.background=ok?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)';
+  bdg.style.color=ok?'#86efac':'#fca5a5';
+  bdg.style.border=`1px solid ${ok?'rgba(34,197,94,.3)':'rgba(239,68,68,.3)'}`;
 }
 
-function safeHref(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return esc(url);
-    }
-  } catch (_) {}
-  return '#invalid-url';
-}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function safeHref(url){try{const p=new URL(url);if(p.protocol==='http:'||p.protocol==='https:')return esc(url);}catch(_){}return '#invalid-url';}
 
-// ── Keyboard shortcuts ────────────────────────────
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
-  if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); document.getElementById('search-input')?.focus(); }
-  if ((e.metaKey||e.ctrlKey) && e.key==='n') { e.preventDefault(); openModal(); }
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeModal();
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.getElementById('search-input')?.focus();}
+  if((e.metaKey||e.ctrlKey)&&e.key==='n'){e.preventDefault();openModal();}
 });
 </script>
 </body>
