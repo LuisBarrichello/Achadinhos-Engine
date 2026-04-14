@@ -26,6 +26,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from script_generator import generate_script, script_to_narration
+from tts_client import synthesize
+from video_assembler import build_deal_video
+from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
@@ -39,6 +43,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("garimpeiro")
 
+WORK_DIR = Path("./temp_videos")
+WORK_DIR.mkdir(exist_ok=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURAÇÃO
@@ -569,6 +575,21 @@ class Garimpeiro:
         tg_ok = vt_ok = 0
         for deal in deals:
             log.info(f"  Postando [{deal.item_id}]: {deal.title[:55]}")
+
+            video_path = None
+            try:
+                sections = await generate_script(deal)
+                narration = script_to_narration(sections)
+                audio_path = WORK_DIR / f"{deal.item_id}_audio.wav"
+
+                tts_ok = await synthesize(narration, audio_path)
+                if tts_ok:
+                    video_path = await build_deal_video(deal, WORK_DIR)
+                    if video_path:
+                        log.info(f"  🎬 Vídeo gerado: {video_path.name}")
+            except Exception as e:
+                log.warning(f"  Pipeline de vídeo falhou: {e}")
+
             ok = await self._telegram.send_deal(deal)
             if not ok:
                 log.warning(f"  Telegram falhou para '{deal.title[:40]}'")
