@@ -1,15 +1,22 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║         Achadinhos do Momento — Garimpeiro v4.0                  ║
+║         Achadinhos do Momento — Garimpeiro v4.1                  ║
 ║         Worker assíncrono · Shopee Affiliate Open Platform       ║
 ╠══════════════════════════════════════════════════════════════════╣
-║  Mudanças v4 (Fase 3):                                           ║
+║  Mudanças v4.1 (hardening de orquestração):                      ║
+║  [RB-1]  Cada etapa do pipeline (TTS, vídeo, Telegram, Vitrine)  ║
+║          tem try/except isolado — falha de uma não cancela as     ║
+║          outras.                                                  ║
+║  [RB-2]  Circuit breaker de vídeo: após N falhas OOM/memória     ║
+║          consecutivas o assembler é desativado no ciclo e o      ║
+║          admin recebe alerta único (sem spam).                    ║
+║  [RB-3]  Alerta de admin para falha total de um ciclo            ║
+║          (0 deals publicadas de N esperadas).                    ║
+║  [RB-4]  Alerta de admin quando TTS falha repetidamente.         ║
 ║  [HC-1]  Health check proativo: mensagem de "Bom dia" no         ║
 ║          primeiro ciclo do dia com status do bot.                ║
-║  [HC-2]  Alerta em CAIXA ALTA para erros de auth Shopee         ║
-║          (credencial expirada / rate limit excedido).            ║
-║  [HC-3]  ADMIN_TELEGRAM_CHAT_ID: chat/grupo de admin para        ║
-║          receber alertas críticos separado do canal público.     ║
+║  [HC-2]  Alerta em CAIXA ALTA para erros de auth Shopee.         ║
+║  [HC-3]  ADMIN_TELEGRAM_CHAT_ID separado do canal público.       ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -22,17 +29,17 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from script_generator import generate_script, script_to_narration
-from tts_client import synthesize
-from video_assembler import build_deal_video
-from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
+
+from script_generator import generate_script, script_to_narration
+from tts_client import synthesize
+from video_assembler import VideoAssemblerError, build_deal_video
 
 load_dotenv()
 
@@ -51,22 +58,19 @@ WORK_DIR.mkdir(exist_ok=True)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Config:
-    SHOPEE_APP_ID     : str = os.getenv("SHOPEE_APP_ID",     "")
-    SHOPEE_APP_SECRET : str = os.getenv("SHOPEE_APP_SECRET", "")
-    SHOPEE_SUB_ID     : str = os.getenv("SHOPEE_SUB_ID", "achadinhos")
+    SHOPEE_APP_ID      : str = os.getenv("SHOPEE_APP_ID",     "")
+    SHOPEE_APP_SECRET  : str = os.getenv("SHOPEE_APP_SECRET", "")
+    SHOPEE_SUB_ID      : str = os.getenv("SHOPEE_SUB_ID", "achadinhos")
 
     TELEGRAM_BOT_TOKEN  : str = os.getenv("TELEGRAM_BOT_TOKEN",  "")
     TELEGRAM_CHANNEL_ID : str = os.getenv("TELEGRAM_CHANNEL_ID", "")
-
-    # [HC-3] Chat de admin para alertas críticos (pode ser o seu chat pessoal)
-    # Se não configurado, os alertas vão para TELEGRAM_CHANNEL_ID mesmo.
     ADMIN_TELEGRAM_CHAT_ID : str = os.getenv(
         "ADMIN_TELEGRAM_CHAT_ID",
         os.getenv("TELEGRAM_CHANNEL_ID", "")
     )
 
-    API_BASE_URL : str = os.getenv("API_BASE_URL",  "http://localhost:8000").rstrip("/")
-    ADMIN_SECRET : str = os.getenv("ADMIN_SECRET",  "")
+    API_BASE_URL : str = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+    ADMIN_SECRET : str = os.getenv("ADMIN_SECRET", "")
 
     POLL_INTERVAL_MIN : int   = int(os.getenv("POLL_INTERVAL_MIN", "30"))
     MIN_DISCOUNT_PCT  : int   = int(os.getenv("MIN_DISCOUNT_PCT",  "20"))
@@ -76,6 +80,11 @@ class Config:
     PROCESSED_DEALS_PATH : Path = Path(
         os.getenv("PROCESSED_DEALS_PATH", "processed_deals.json")
     )
+
+    # [RB-2] Quantas falhas OOM consecutivas desativam o vídeo no ciclo
+    VIDEO_OOM_THRESHOLD : int = int(os.getenv("VIDEO_OOM_THRESHOLD", "3"))
+    # [RB-4] Quantas falhas TTS consecutivas disparam alerta admin
+    TTS_FAIL_THRESHOLD  : int = int(os.getenv("TTS_FAIL_THRESHOLD",  "3"))
 
     @classmethod
     def validate(cls) -> None:
@@ -91,9 +100,9 @@ class Config:
             raise EnvironmentError(
                 "Variáveis de ambiente obrigatórias não definidas:\n"
                 + "\n".join(f"  · {k}" for k in missing)
-                + "\n\nConsulte o .env.example e preencha o .env antes de rodar."
+                + "\n\nConsulte o .env.example."
             )
-        log.info("✅ Configuração validada com sucesso.")
+        log.info("✅ Configuração validada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -118,8 +127,7 @@ class Deal:
     def to_vitrine_payload(self) -> dict:
         title_with_discount = (
             f"{self.title} — {self.discount_pct}% OFF"
-            if self.discount_pct
-            else self.title
+            if self.discount_pct else self.title
         )
         return {
             "title"      : title_with_discount[:120],
@@ -160,10 +168,7 @@ class DealStore:
         try:
             with self._path.open(encoding="utf-8") as f:
                 raw = json.load(f)
-            if isinstance(raw, list):
-                return {k: 0 for k in raw}
-            if isinstance(raw, dict):
-                return raw
+            return raw if isinstance(raw, dict) else {k: 0 for k in raw}
         except (json.JSONDecodeError, IOError) as e:
             log.warning(f"DealStore: erro ao ler {self._path}: {e}")
         return {}
@@ -182,20 +187,18 @@ class DealStore:
             tmp.replace(self._path)
         except IOError as e:
             log.error(f"DealStore: falha ao persistir: {e}")
-            if tmp.exists():
-                tmp.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SHOPEE API — mesma lógica do v3, com retorno explícito de tipo de erro
+# SHOPEE API
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Tipos de erro Shopee para o health check
-SHOPEE_ERR_AUTH       = "auth_error"       # credencial expirada / inválida
-SHOPEE_ERR_RATE_LIMIT = "rate_limit"       # 429
-SHOPEE_ERR_SERVER     = "server_error"     # 5xx
-SHOPEE_ERR_NETWORK    = "network_error"    # conexão
-SHOPEE_ERR_LOGIC      = "logic_error"      # code != 0 no body
+SHOPEE_ERR_AUTH       = "auth_error"
+SHOPEE_ERR_RATE_LIMIT = "rate_limit"
+SHOPEE_ERR_SERVER     = "server_error"
+SHOPEE_ERR_NETWORK    = "network_error"
+SHOPEE_ERR_LOGIC      = "logic_error"
 
 
 class ShopeeAPI:
@@ -216,10 +219,6 @@ class ShopeeAPI:
                 "sign": self._build_signature(path, timestamp, body)}
 
     async def fetch_top_products(self, limit=20, min_discount=0) -> tuple[list[dict], Optional[str]]:
-        """
-        Retorna (lista_de_items, tipo_de_erro_ou_None).
-        O tipo_de_erro é uma das constantes SHOPEE_ERR_*.
-        """
         path      = "/v1/shop/get_top_products"
         timestamp = int(time.time())
         params    = {**self._auth_params(path, timestamp), "page": 1, "limit": limit, "sort_type": 2}
@@ -230,10 +229,9 @@ class ShopeeAPI:
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPStatusError as e:
-            err_type = self._classify_http_error("fetch_top_products", e)
-            return [], err_type
+            return [], self._classify_http_error("fetch_top_products", e)
         except httpx.RequestError as e:
-            log.error(f"Shopee [fetch_top_products] rede: {e}")
+            log.error(f"Shopee rede: {e}")
             return [], SHOPEE_ERR_NETWORK
 
         code = data.get("code", 0) or data.get("error", 0)
@@ -323,7 +321,6 @@ class ShopeeAPI:
             return 0
 
     def _classify_http_error(self, method: str, exc: httpx.HTTPStatusError) -> str:
-        """[HC-2] Classifica o erro HTTP em tipo semântico para o health check."""
         status = exc.response.status_code
         body   = exc.response.text[:200]
         if status == 429:
@@ -360,33 +357,25 @@ class TelegramClient:
             if ok:
                 await asyncio.sleep(self._SEND_DELAY)
                 return True
-            log.warning(f"Telegram: sendPhoto falhou — fallback para sendMessage")
+            log.warning("Telegram: sendPhoto falhou — fallback para sendMessage")
         ok = await self._send_message(caption, self._channel_id)
         await asyncio.sleep(self._SEND_DELAY)
         return ok
 
-    # ── [HC-1] Mensagem de bom dia / status diário ────────────────────────
     async def send_daily_hello(self, stats: dict) -> None:
-        """Envia uma mensagem de status diária para o chat de admin."""
         lines = [
-            "🌅 *Garimpeiro — Relatório Diário*",
-            "",
+            "🌅 *Garimpeiro — Relatório Diário*", "",
             f"📅 Data: {date.today().strftime('%d/%m/%Y')}",
             f"⏱ Intervalo de ciclo: {stats.get('interval_min', '?')} min",
             f"💸 Desconto mínimo: {stats.get('min_discount', '?')}%",
             f"📦 Deals por ciclo: {stats.get('deals_per_cycle', '?')}",
-            "",
-            "✅ Bot iniciado e operacional.",
+            "", "✅ Bot iniciado e operacional.",
         ]
         await self._send_message("\n".join(lines), self._admin_chat_id)
-        log.info("📢 Mensagem de bom dia enviada ao admin.")
+        log.info("📢 Mensagem de bom dia enviada.")
 
-    # ── [HC-2] Alerta crítico de credencial / rate limit ──────────────────
     async def send_critical_alert(self, error_type: str, detail: str = "") -> None:
-        """
-        Envia alerta em CAIXA ALTA para o chat de admin quando a
-        credencial Shopee expira ou o rate limit é atingido.
-        """
+        """[HC-2] Alerta em CAIXA ALTA para admin."""
         if error_type == SHOPEE_ERR_AUTH:
             msg = (
                 "🚨🚨🚨 *ALERTA CRÍTICO — SHOPEE* 🚨🚨🚨\n\n"
@@ -398,18 +387,38 @@ class TelegramClient:
         elif error_type == SHOPEE_ERR_RATE_LIMIT:
             msg = (
                 "⚠️ *AVISO — SHOPEE RATE LIMIT*\n\n"
-                "O bot atingiu o limite de requisições da Shopee (HTTP 429).\n"
-                "Aguardando o próximo ciclo automaticamente.\n\n"
-                "_Nenhuma ação necessária — o bot retomará sozinho._"
+                "Rate limit atingido (HTTP 429).\n"
+                "_Bot retomará automaticamente no próximo ciclo._"
+            )
+        elif error_type == "oom":
+            msg = (
+                "🧠 *AVISO — RAM INSUFICIENTE PARA VÍDEO*\n\n"
+                "A montagem de vídeo foi *desativada* neste ciclo por falta de RAM.\n"
+                "Deals continuarão sendo postadas *sem vídeo* no Telegram.\n\n"
+                "Solução: gere vídeos localmente via `gui_organizer.py`.\n\n"
+                f"Detalhe: `{detail}`"
+            )
+        elif error_type == "tts_fail":
+            msg = (
+                "🎙️ *AVISO — FALHAS REPETIDAS NO TTS*\n\n"
+                f"O gerador de voz falhou {detail} vezes consecutivas.\n"
+                "Verifique se o engine TTS está configurado e acessível.\n"
+                "_Deals continuarão sendo postadas sem áudio/vídeo._"
+            )
+        elif error_type == "cycle_zero":
+            msg = (
+                "⚠️ *AVISO — CICLO SEM PUBLICAÇÕES*\n\n"
+                f"Nenhuma das {detail} deals do ciclo foi publicada no Telegram.\n"
+                "Verifique: token do bot, chat ID, e conectividade."
             )
         else:
             msg = (
                 f"⚠️ *Aviso do Garimpeiro*\n\n"
-                f"Tipo de erro: `{error_type}`\n"
+                f"Tipo: `{error_type}`\n"
                 f"Detalhe: `{detail or 'sem detalhe'}`"
             )
         await self._send_message(msg, self._admin_chat_id)
-        log.warning(f"🚨 Alerta crítico enviado ao admin: {error_type}")
+        log.warning(f"🚨 Alerta admin: {error_type} — {detail[:80] if detail else ''}")
 
     async def _send_photo(self, photo_url, caption, chat_id) -> bool:
         return await self._post("sendPhoto", {
@@ -441,7 +450,7 @@ class TelegramClient:
             log.error(f"Telegram: timeout em {method}")
             return False
         except httpx.RequestError as e:
-            log.error(f"Telegram: erro de rede em {method}: {e}")
+            log.error(f"Telegram: rede em {method}: {e}")
             return False
         except Exception as e:
             log.error(f"Telegram: erro inesperado em {method}: {e}")
@@ -468,7 +477,7 @@ class VitrineAPI:
                 log.error("Vitrine: ADMIN_SECRET inválido (403)")
                 return False
             resp.raise_for_status()
-            log.info(f"Vitrine: link criado para '{deal.title[:50]}'")
+            log.info(f"Vitrine: link criado — '{deal.title[:50]}'")
             return True
         except httpx.RequestError as e:
             log.warning(f"Vitrine inacessível: {e}")
@@ -482,6 +491,14 @@ class VitrineAPI:
 # GARIMPEIRO
 # ══════════════════════════════════════════════════════════════════════════════
 
+@dataclass
+class _PipelineCounters:
+    """Contadores de falhas consecutivas para circuit breakers."""
+    oom_consecutive  : int = 0   # [RB-2] falhas OOM/RAM no vídeo
+    tts_consecutive  : int = 0   # [RB-4] falhas no TTS
+    video_disabled   : bool = False  # [RB-2] vídeo desativado na sessão
+
+
 class Garimpeiro:
 
     def __init__(self, cfg: type[Config]) -> None:
@@ -493,17 +510,17 @@ class Garimpeiro:
             cfg.SHOPEE_SUB_ID, cfg.HTTP_TIMEOUT,
         )
         self._telegram = TelegramClient(
-            token          = cfg.TELEGRAM_BOT_TOKEN,
-            channel_id     = cfg.TELEGRAM_CHANNEL_ID,
-            admin_chat_id  = cfg.ADMIN_TELEGRAM_CHAT_ID,
-            timeout        = cfg.HTTP_TIMEOUT,
+            token         = cfg.TELEGRAM_BOT_TOKEN,
+            channel_id    = cfg.TELEGRAM_CHANNEL_ID,
+            admin_chat_id = cfg.ADMIN_TELEGRAM_CHAT_ID,
+            timeout       = cfg.HTTP_TIMEOUT,
         )
         self._vitrine = VitrineAPI(cfg.API_BASE_URL, cfg.ADMIN_SECRET, cfg.HTTP_TIMEOUT)
 
-        # [HC-1] Controle de bom dia: envia apenas uma vez por dia
-        self._last_hello_date: Optional[date] = None
+        self._last_hello_date : Optional[date] = None
+        self._counters = _PipelineCounters()
 
-    # ── [HC-1] Envia mensagem de bom dia se ainda não enviou hoje ────────────
+    # ── Bom dia ───────────────────────────────────────────────────────────────
     async def _maybe_send_daily_hello(self) -> None:
         today = date.today()
         if self._last_hello_date == today:
@@ -515,25 +532,87 @@ class Garimpeiro:
         })
         self._last_hello_date = today
 
+    # ── [RB-1] Pipeline isolado por etapa ────────────────────────────────────
+    async def _run_video_pipeline(self, deal: Deal) -> Path | None:
+        """
+        [RB-1] TTS e vídeo em blocos isolados.
+        [RB-2] Circuit breaker de OOM: desativa vídeo após N falhas consecutivas.
+        [RB-4] Alerta admin após N falhas TTS consecutivas.
+        """
+        # [RB-2] Vídeo desativado por OOM anterior
+        if self._counters.video_disabled:
+            log.info(f"  [RB-2] Vídeo desativado (OOM circuit breaker ativo).")
+            return None
+
+        # Etapa 1 — TTS
+        audio_path = WORK_DIR / f"{deal.item_id}_audio.wav"
+        tts_ok = False
+        try:
+            sections  = await generate_script(deal)
+            narration = script_to_narration(sections)
+            tts_ok    = await synthesize(narration, audio_path)
+        except Exception as exc:
+            log.warning(f"  [RB-1] TTS exceção: {exc}")
+
+        if tts_ok:
+            self._counters.tts_consecutive = 0
+        else:
+            self._counters.tts_consecutive += 1
+            log.warning(
+                f"  [RB-4] TTS falhou ({self._counters.tts_consecutive}× consecutivo)."
+            )
+            # [RB-4] Alerta admin após threshold
+            if self._counters.tts_consecutive == self._cfg.TTS_FAIL_THRESHOLD:
+                await self._telegram.send_critical_alert(
+                    "tts_fail",
+                    detail=str(self._counters.tts_consecutive),
+                )
+            return None   # sem áudio → sem vídeo
+
+        # Etapa 2 — Montagem de vídeo
+        video_path = None
+        try:
+            video_path = await build_deal_video(deal, WORK_DIR)
+            if video_path:
+                self._counters.oom_consecutive = 0
+                log.info(f"  🎬 Vídeo: {video_path.name}")
+        except VideoAssemblerError as exc:
+            reason = str(exc)
+            is_oom = any(kw in reason.lower() for kw in ("ram", "memoryerror", "oom", "137", "killed"))
+            if is_oom:
+                self._counters.oom_consecutive += 1
+                log.error(f"  [RB-2] OOM #{self._counters.oom_consecutive}: {reason[:120]}")
+                # [RB-2] Desativa após threshold e alerta admin UMA VEZ
+                if self._counters.oom_consecutive >= self._cfg.VIDEO_OOM_THRESHOLD:
+                    if not self._counters.video_disabled:
+                        self._counters.video_disabled = True
+                        await self._telegram.send_critical_alert("oom", detail=reason[:200])
+                        log.error("  [RB-2] Circuit breaker ativado — vídeo desativado nesta sessão.")
+            else:
+                log.error(f"  [RB-1] VideoAssemblerError: {reason[:120]}")
+        except Exception as exc:
+            log.error(f"  [RB-1] Vídeo exceção inesperada: {exc}")
+
+        return video_path
+
+    # ── Ciclo principal ───────────────────────────────────────────────────────
     async def run_cycle(self) -> None:
         log.info("─" * 60)
         log.info("⛏️  Iniciando ciclo de garimpo")
 
-        # [HC-1] Bom dia (apenas uma vez ao dia)
         await self._maybe_send_daily_hello()
 
-        # Busca produtos
+        # Busca Shopee
         raw_items, err_type = await self._shopee.fetch_top_products(
             limit        = self._cfg.DEALS_PER_CYCLE * 4,
             min_discount = self._cfg.MIN_DISCOUNT_PCT,
         )
 
-        # [HC-2] Trata erros críticos da Shopee
+        # [HC-2] Erros críticos Shopee
         if err_type in (SHOPEE_ERR_AUTH, SHOPEE_ERR_RATE_LIMIT):
             await self._telegram.send_critical_alert(err_type)
             if err_type == SHOPEE_ERR_AUTH:
-                # Auth expirada: aguarda mais tempo antes de tentar de novo
-                log.error("⛔ Credencial Shopee expirada — pulando ciclo por 2× intervalo")
+                log.error("⛔ Credencial Shopee expirada — aguardando 2× intervalo")
                 await asyncio.sleep(self._cfg.POLL_INTERVAL_MIN * 60 * 2)
             return
 
@@ -546,14 +625,17 @@ class Garimpeiro:
             return
 
         # Filtra duplicatas
-        new_items = [
+        new_items  = [
             it for it in raw_items
             if not self._store.already_seen(
                 f"shopee:{it.get('item_id') or it.get('itemid', '')}"
             )
         ]
         to_process = new_items[: self._cfg.DEALS_PER_CYCLE]
-        log.info(f"📦 {len(raw_items)} brutos | {len(new_items)} novos | {len(to_process)} a processar")
+        log.info(
+            f"📦 {len(raw_items)} brutos | {len(new_items)} novos | "
+            f"{len(to_process)} a processar"
+        )
 
         if not to_process:
             log.info("Nenhum item novo neste ciclo.")
@@ -562,55 +644,72 @@ class Garimpeiro:
         # Normaliza → Deals
         deals: list[Deal] = []
         for raw in to_process:
-            deal = await self._shopee.build_deal(raw)
-            if deal:
-                deals.append(deal)
+            try:
+                deal = await self._shopee.build_deal(raw)
+                if deal:
+                    deals.append(deal)
+            except Exception as exc:
+                log.warning(f"build_deal exceção: {exc}")
             await asyncio.sleep(0.5)
 
         if not deals:
             log.info("Nenhuma deal válida após normalização.")
             return
 
-        # Publica
+        # [RB-1] Publica — cada etapa isolada
         tg_ok = vt_ok = 0
         for deal in deals:
             log.info(f"  Postando [{deal.item_id}]: {deal.title[:55]}")
 
-            video_path = None
+            # Etapas de TTS + vídeo (falhas não bloqueiam Telegram)
+            await self._run_video_pipeline(deal)
+
+            # Telegram — [RB-1] isolado
+            tg_posted = False
             try:
-                sections = await generate_script(deal)
-                narration = script_to_narration(sections)
-                audio_path = WORK_DIR / f"{deal.item_id}_audio.wav"
+                tg_posted = await self._telegram.send_deal(deal)
+            except Exception as exc:
+                log.error(f"  [RB-1] Telegram exceção: {exc}")
 
-                tts_ok = await synthesize(narration, audio_path)
-                if tts_ok:
-                    video_path = await build_deal_video(deal, WORK_DIR)
-                    if video_path:
-                        log.info(f"  🎬 Vídeo gerado: {video_path.name}")
-            except Exception as e:
-                log.warning(f"  Pipeline de vídeo falhou: {e}")
-
-            ok = await self._telegram.send_deal(deal)
-            if not ok:
-                log.warning(f"  Telegram falhou para '{deal.title[:40]}'")
+            if not tg_posted:
+                log.warning(f"  Telegram falhou — '{deal.title[:40]}'")
                 continue
+
             self._store.mark(deal.unique_key)
             tg_ok += 1
-            if await self._vitrine.publish(deal):
-                vt_ok += 1
+
+            # Vitrine — [RB-1] isolado
+            try:
+                if await self._vitrine.publish(deal):
+                    vt_ok += 1
+            except Exception as exc:
+                log.warning(f"  [RB-1] Vitrine exceção: {exc}")
 
         self._store.flush()
-        log.info(f"Ciclo concluído — Telegram: {tg_ok}/{len(deals)} | Vitrine: {vt_ok}/{len(deals)}")
+        log.info(
+            f"Ciclo concluído — Telegram: {tg_ok}/{len(deals)} | "
+            f"Vitrine: {vt_ok}/{len(deals)}"
+        )
 
+        # [RB-3] Alerta se NENHUMA deal foi publicada
+        if tg_ok == 0 and len(deals) > 0:
+            await self._telegram.send_critical_alert(
+                "cycle_zero",
+                detail=str(len(deals)),
+            )
+
+    # ── Loop infinito ─────────────────────────────────────────────────────────
     async def run_forever(self) -> None:
         interval = self._cfg.POLL_INTERVAL_MIN * 60
 
         log.info("=" * 60)
-        log.info("Garimpeiro v4 iniciado")
-        log.info(f"  Intervalo     : {self._cfg.POLL_INTERVAL_MIN} min")
-        log.info(f"  Desconto min. : {self._cfg.MIN_DISCOUNT_PCT}%")
-        log.info(f"  Deals/ciclo   : {self._cfg.DEALS_PER_CYCLE}")
-        log.info(f"  Admin chat    : {self._cfg.ADMIN_TELEGRAM_CHAT_ID}")
+        log.info("Garimpeiro v4.1 iniciado")
+        log.info(f"  Intervalo        : {self._cfg.POLL_INTERVAL_MIN} min")
+        log.info(f"  Desconto min.    : {self._cfg.MIN_DISCOUNT_PCT}%")
+        log.info(f"  Deals/ciclo      : {self._cfg.DEALS_PER_CYCLE}")
+        log.info(f"  Admin chat       : {self._cfg.ADMIN_TELEGRAM_CHAT_ID}")
+        log.info(f"  OOM threshold    : {self._cfg.VIDEO_OOM_THRESHOLD} falhas")
+        log.info(f"  TTS threshold    : {self._cfg.TTS_FAIL_THRESHOLD} falhas")
         log.info("=" * 60)
 
         while True:
@@ -618,6 +717,14 @@ class Garimpeiro:
                 await self.run_cycle()
             except Exception as exc:
                 log.exception(f"Exceção não tratada em run_cycle: {exc}")
+                # Não deixa o loop morrer silenciosamente
+                try:
+                    await self._telegram.send_critical_alert(
+                        "unexpected",
+                        detail=f"{type(exc).__name__}: {str(exc)[:150]}",
+                    )
+                except Exception:
+                    pass
 
             nxt = time.strftime("%H:%M:%S", time.localtime(time.time() + interval))
             log.info(f"Dormindo {self._cfg.POLL_INTERVAL_MIN}min — próximo ciclo às {nxt}")
