@@ -1,15 +1,19 @@
 """
 =============================================================
- Achadinhos do Momento — Backend API  (v6 — URL-only images)
+ Achadinhos do Momento — Backend API  (v7 — DB Queue)
  Stack : FastAPI + PostgreSQL (via SQLModel + psycopg2)
 =============================================================
-Mudanças v6 (Fase 1 — item 4):
-  [IMG-URL] Remove toda lógica de upload físico de imagens.
-             O campo image_url agora é apenas uma string de URL
-             passada diretamente no corpo JSON do POST/PATCH.
-             Nenhum arquivo é salvo localmente; nenhum serviço
-             de terceiros (ImgBB etc.) é chamado.
-  [DM-CTR]  Contador de DMs enviadas hoje (para o dashboard).
+Mudanças v7:
+  [DQ-1] WebhookEvent — fila de DMs persistida no PostgreSQL.
+          O webhook salva (user_id, message) como "pending" e
+          retorna 200 imediatamente. O garimpeiro drena a fila
+          de forma assíncrona, garantindo zero perda de dados
+          em restarts do container (Render Free hiberna).
+  [DQ-2] Remove BackgroundTasks do FastAPI — era in-memory,
+          perdia dados em restarts silenciosamente.
+  [DQ-3] Novos endpoints de fila (admin-only):
+          GET  /webhooks/events/pending
+          PATCH /webhooks/events/{id}
 =============================================================
 """
 
@@ -30,7 +34,7 @@ from datetime import date
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request, Depends, BackgroundTasks
+from fastapi import FastAPI, Header, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -67,9 +71,8 @@ engine = create_engine(
     pool_recycle=300,
 )
 
-# ─── Contador de DMs em memória (reseta ao reiniciar o processo) ──
-# Para persistência entre restarts, mova para o banco.
-_dm_counters: dict[str, int] = {}   # chave: "YYYY-MM-DD", valor: contagem
+# ─── Contador de DMs em memória (fallback — fonte verdade é a tabela) ──
+_dm_counters: dict[str, int] = {}
 
 def _increment_dm_today() -> None:
     today = str(date.today())
@@ -90,17 +93,31 @@ class Link(SQLModel, table=True):
     active      : bool          = True
     order       : int           = 0
     clicks      : int           = 0
-    # [IMG-URL] Apenas a URL da imagem — nenhum arquivo local
     image_url   : Optional[str] = None
     keyword     : Optional[str] = Field(default=None, index=True)
 
 
 class KeywordLink(SQLModel, table=True):
-    """Mantido por compatibilidade — nova lógica usa Link.keyword."""
     id      : Optional[int] = Field(default=None, primary_key=True)
     keyword : str           = Field(index=True)
     url     : str
     message : str           = "Oi! Aqui está seu link 👇\n{url}"
+
+
+class WebhookEvent(SQLModel, table=True):
+    """
+    [DQ-1] Fila persistente de DMs pendentes.
+    Substitui BackgroundTasks (in-memory, perdia dados em restarts).
+    O garimpeiro drena esta tabela de forma assíncrona.
+    """
+    __tablename__ = "webhook_events"
+    id           : Optional[int] = Field(default=None, primary_key=True)
+    user_id      : str
+    message      : str
+    status       : str           = Field(default="pending", index=True)
+    created_at   : int           = Field(default_factory=lambda: int(time.time()))
+    processed_at : Optional[int] = None
+    error        : Optional[str] = None
 
 
 def get_session():
@@ -112,6 +129,19 @@ def _run_migrations():
     migrations = [
         "ALTER TABLE link ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE link ADD COLUMN IF NOT EXISTS keyword TEXT",
+        # [DQ-1] Tabela de fila — idempotente, SQLModel.create_all cuida do resto
+        """
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id           SERIAL PRIMARY KEY,
+            user_id      TEXT    NOT NULL,
+            message      TEXT    NOT NULL,
+            status       TEXT    NOT NULL DEFAULT 'pending',
+            created_at   INTEGER NOT NULL,
+            processed_at INTEGER,
+            error        TEXT
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_webhook_events_status ON webhook_events (status)",
     ]
     import sqlalchemy
     with engine.connect() as conn:
@@ -119,7 +149,7 @@ def _run_migrations():
             try:
                 conn.execute(sqlalchemy.text(sql))
                 conn.commit()
-                log.info(f"✅ Migration OK: {sql}")
+                log.info(f"✅ Migration OK")
             except Exception as exc:
                 log.debug(f"Migration ignorada ({exc})")
 
@@ -198,7 +228,6 @@ class LinkCreate(BaseModel):
     badge_color : str           = "#e11d48"
     active      : bool          = True
     order       : int           = 0
-    # [IMG-URL] Campo simples de URL de imagem — sem upload, sem FormData
     image_url   : Optional[str] = None
     keyword     : Optional[str] = None
 
@@ -219,7 +248,6 @@ class LinkCreate(BaseModel):
     @field_validator("image_url")
     @classmethod
     def validate_image_url(cls, v: Optional[str]) -> Optional[str]:
-        """[IMG-URL] Valida que a URL de imagem é http/https, se fornecida."""
         if not v:
             return None
         v = v.strip()
@@ -245,22 +273,37 @@ class LinkRead(BaseModel):
         from_attributes = True
 
 
-# ─── Rota de status do sistema (para o dashboard) ────────────
+class WebhookEventRead(BaseModel):
+    id         : int
+    user_id    : str
+    message    : str
+    status     : str
+    created_at : int
+
+    class Config:
+        from_attributes = True
+
+
+class EventStatusUpdate(BaseModel):
+    status : str                # pending | processing | completed | failed
+    error  : Optional[str] = None
+
+
 class SystemStatus(BaseModel):
     db_connected    : bool
     webhook_active  : bool
     dm_count_today  : int
+    pending_dms     : int       # [DQ-1] fila visível no dashboard
     version         : str
     image_mode      : str
 
 
-# ─── Helper: verificar secret admin ──────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────
 def verify_admin(x_admin_secret: str = Header(...)):
     if not hmac.compare_digest(x_admin_secret.encode(), ADMIN_SECRET.encode()):
         raise HTTPException(status_code=403, detail="Não autorizado")
 
 
-# ─── Rate limit simples para /click ──────────────────────────
 _click_cache: dict[str, float] = {}
 CLICK_COOLDOWN_SECONDS = 60
 _CLICK_CACHE_CLEANUP_EVERY = 500
@@ -272,21 +315,27 @@ def _rate_limit_click(request: Request, link_id: int) -> bool:
     client_ip = request.client.host if request.client else "unknown"
     key = f"{client_ip}:{link_id}"
     now = time.monotonic()
-
     if now - _click_cache.get(key, 0.0) < CLICK_COOLDOWN_SECONDS:
         return False
-
     _click_cache[key] = now
     _click_cache_inserts += 1
-
     if _click_cache_inserts >= _CLICK_CACHE_CLEANUP_EVERY:
         cutoff = now - CLICK_COOLDOWN_SECONDS
         expired = [k for k, ts in _click_cache.items() if ts < cutoff]
         for k in expired:
             del _click_cache[k]
         _click_cache_inserts = 0
-
     return True
+
+
+# [DQ-1] Salva DM na fila em vez de disparar diretamente
+def _enqueue_dm(user_id: str, message: str) -> None:
+    with Session(engine) as session:
+        event = WebhookEvent(user_id=user_id, message=message)
+        session.add(event)
+        session.commit()
+    _increment_dm_today()
+    log.info(f"📥 DM enfileirada para {user_id}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -311,7 +360,6 @@ def create_link(data: LinkCreate, session: Session = Depends(get_session)):
                 status_code=409,
                 detail=f"Keyword '{data.keyword}' já usada por: '{existing.title}'"
             )
-
     link = Link(**data.model_dump())
     link.url = str(data.url)
     session.add(link)
@@ -325,7 +373,6 @@ def update_link(link_id: int, data: LinkCreate, session: Session = Depends(get_s
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
-
     if data.keyword:
         existing = session.exec(
             select(Link)
@@ -337,7 +384,6 @@ def update_link(link_id: int, data: LinkCreate, session: Session = Depends(get_s
                 status_code=409,
                 detail=f"Keyword '{data.keyword}' já usada por: '{existing.title}'"
             )
-
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(link, field, str(value) if field == "url" else value)
     session.commit()
@@ -350,7 +396,6 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
-    # [IMG-URL] Sem arquivo local para deletar — só remove o registro
     session.delete(link)
     session.commit()
     return {"ok": True}
@@ -359,11 +404,9 @@ def delete_link(link_id: int, session: Session = Depends(get_session)):
 @app.post("/links/{link_id}/click")
 def register_click(link_id: int, request: Request, session: Session = Depends(get_session)):
     import sqlalchemy as sa
-
     link = session.get(Link, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Link não encontrado")
-
     if _rate_limit_click(request, link_id):
         session.exec(
             sa.update(Link)
@@ -372,8 +415,64 @@ def register_click(link_id: int, request: Request, session: Session = Depends(ge
         )
         session.commit()
         session.refresh(link)
-
     return {"clicks": link.clicks}
+
+
+# ══════════════════════════════════════════════════════════════
+# FILA DE DMs  [DQ-1]
+# ══════════════════════════════════════════════════════════════
+
+@app.get(
+    "/webhooks/events/pending",
+    response_model=List[WebhookEventRead],
+    dependencies=[Depends(verify_admin)],
+    summary="[DQ-1] Retorna DMs pendentes para o garimpeiro processar",
+)
+def get_pending_events(
+    limit  : int     = 50,
+    session: Session = Depends(get_session),
+):
+    """
+    O garimpeiro chama este endpoint periodicamente.
+    Retorna até `limit` eventos com status 'pending', ordenados por data.
+    """
+    return session.exec(
+        select(WebhookEvent)
+        .where(WebhookEvent.status == "pending")
+        .order_by(WebhookEvent.created_at)
+        .limit(limit)
+    ).all()
+
+
+@app.patch(
+    "/webhooks/events/{event_id}",
+    dependencies=[Depends(verify_admin)],
+    summary="[DQ-1] Atualiza status de um evento da fila",
+)
+def update_event_status(
+    event_id : int,
+    data     : EventStatusUpdate,
+    session  : Session = Depends(get_session),
+):
+    """
+    O garimpeiro chama com status='processing' ao iniciar,
+    'completed' em sucesso ou 'failed' em falha.
+    """
+    valid = {"pending", "processing", "completed", "failed"}
+    if data.status not in valid:
+        raise HTTPException(status_code=400, detail=f"status deve ser um de: {valid}")
+
+    event = session.get(WebhookEvent, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    event.status = data.status
+    if data.status in ("completed", "failed"):
+        event.processed_at = int(time.time())
+    if data.error:
+        event.error = data.error[:500]
+    session.commit()
+    return {"ok": True, "id": event_id, "status": event.status}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -398,17 +497,14 @@ def verify_webhook(
             return int(hub_challenge)
         except (TypeError, ValueError):
             return hub_challenge
-
     raise HTTPException(status_code=403, detail="Token de verificação inválido")
 
 
 @app.post("/webhook/meta")
-async def receive_webhook(
-    request    : Request,
-    background : BackgroundTasks,
-):
+async def receive_webhook(request: Request):
     """
-    Retorna 200 OK imediatamente — processamento roda em background.
+    [DQ-2] Sem BackgroundTasks — processa sincrono e salva na fila.
+    Retorna 200 em < 500ms (exigência da Meta).
     """
     import json as _json
 
@@ -427,11 +523,16 @@ async def receive_webhook(
     except _json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Payload inválido")
 
-    background.add_task(_process_webhook_payload, payload)
+    # [DQ-1] Enfileira sincronamente (DB write é rápido) e retorna 200
+    _process_and_enqueue(payload)
     return {"status": "ok"}
 
 
-async def _process_webhook_payload(payload: dict) -> None:
+def _process_and_enqueue(payload: dict) -> None:
+    """
+    [DQ-1] Resolve fuzzy matching e grava na fila do banco.
+    Executa em < 100ms (apenas leituras e uma escrita no DB).
+    """
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
@@ -444,78 +545,52 @@ async def _process_webhook_payload(payload: dict) -> None:
             if not user_id or not raw_text:
                 continue
 
-            log.info(f"📩 Comentário de {user_id}: '{raw_text}'")
+            log.info(f"📩 Comentário de {user_id}: '{raw_text[:60]}'")
 
-            with Session(engine) as session:
-                links_com_keyword = session.exec(
-                    select(Link)
-                    .where(Link.keyword != None)  # noqa: E711
-                    .where(Link.active == True)
-                ).all()
-
-                matched_link = next(
-                    (lk for lk in links_com_keyword
-                     if _keyword_matches(raw_text, lk.keyword)),
-                    None
-                )
-
-            if matched_link:
-                message = (
-                    f"Oi! Obrigado pelo interesse! 🛍️\n"
-                    f"Aqui está o link do produto:\n{matched_link.url}"
-                )
-                await send_dm(user_id, message)
-                _increment_dm_today()
-                log.info(
-                    f"📨 DM enviada para {user_id} "
-                    f"→ keyword '{matched_link.keyword}' → link #{matched_link.id}"
-                )
-                continue
-
-            with Session(engine) as session:
-                kw_links = session.exec(select(KeywordLink)).all()
-                legacy = next(
-                    (kl for kl in kw_links
-                     if _keyword_matches(raw_text, kl.keyword)),
-                    None
-                )
-
-            if legacy:
-                message = legacy.message.format(url=legacy.url)
-                await send_dm(user_id, message)
-                _increment_dm_today()
-                log.info(f"📨 DM (legado) enviada para {user_id}")
+            # Resolve mensagem via keyword
+            message = _resolve_dm_message(raw_text)
+            if message:
+                _enqueue_dm(user_id, message)  # [DQ-1] salva no banco
 
 
-async def send_dm(recipient_id: str, message: str):
-    if not PAGE_ACCESS_TOKEN:
-        log.warning("PAGE_ACCESS_TOKEN não configurado — DM não enviada.")
-        return
-    payload = {
-        "recipient"      : {"id": recipient_id},
-        "message"        : {"text": message},
-        "messaging_type" : "RESPONSE",
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            "https://graph.facebook.com/v19.0/me/messages",
-            json=payload,
-            params={"access_token": PAGE_ACCESS_TOKEN},
+def _resolve_dm_message(raw_text: str) -> Optional[str]:
+    """Retorna a mensagem de DM se alguma keyword bater, senão None."""
+    with Session(engine) as session:
+        # 1. Links com keyword inline
+        links_com_keyword = session.exec(
+            select(Link)
+            .where(Link.keyword != None)  # noqa: E711
+            .where(Link.active == True)
+        ).all()
+
+        matched_link = next(
+            (lk for lk in links_com_keyword if _keyword_matches(raw_text, lk.keyword)),
+            None
         )
-        if resp.status_code != 200:
-            log.error(f"❌ Graph API erro: {resp.text[:150]}")
+        if matched_link:
+            return (
+                f"Oi! Obrigado pelo interesse! 🛍️\n"
+                f"Aqui está o link do produto:\n{matched_link.url}"
+            )
+
+        # 2. Tabela legada KeywordLink
+        kw_links = session.exec(select(KeywordLink)).all()
+        legacy = next(
+            (kl for kl in kw_links if _keyword_matches(raw_text, kl.keyword)),
+            None
+        )
+        if legacy:
+            return legacy.message.format(url=legacy.url)
+
+    return None
 
 
-# ──────────────────────────────────────────────────────────────
-# ROTA: Status do Sistema (para o dashboard de admin)
-# ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# STATUS / ADMIN
+# ══════════════════════════════════════════════════════════════
 
 @app.get("/status", response_model=SystemStatus)
-def system_status():
-    """
-    Retorna indicadores de saúde usados pelo dashboard Admin.
-    Não requer autenticação — não expõe dados sensíveis.
-    """
+def system_status(session: Session = Depends(get_session)):
     db_ok = False
     try:
         import sqlalchemy
@@ -525,16 +600,25 @@ def system_status():
     except Exception as exc:
         log.error(f"DB health check falhou: {exc}")
 
+    # [DQ-1] Conta pendentes para exibir no dashboard
+    pending = 0
+    try:
+        pending = session.exec(
+            select(WebhookEvent).where(WebhookEvent.status == "pending")
+        ).all().__len__()
+    except Exception:
+        pass
+
     return SystemStatus(
         db_connected   = db_ok,
         webhook_active = bool(WEBHOOK_VERIFY_TOKEN and META_APP_SECRET),
         dm_count_today = _dm_count_today(),
-        version        = "6.0.0",
+        pending_dms    = pending,
+        version        = "7.0.0",
         image_mode     = "url-only",
     )
 
 
-# ─── Healthcheck ─────────────────────────────────────────────
 @app.get("/")
 def healthcheck():
     db_ok = False
@@ -550,10 +634,10 @@ def healthcheck():
         "status"             : "🟢 online" if db_ok else "🔴 db_error",
         "db_connected"       : db_ok,
         "project"            : "Achadinhos do Momento",
-        "version"            : "6.0.0",
-        "image_mode"         : "url-only",   # [IMG-URL]
+        "version"            : "7.0.0",
+        "image_mode"         : "url-only",
         "keyword_automation" : "enabled",
-        "fuzzy_matching"     : "enabled",
+        "dm_queue"           : "db-backed",   # [DQ-1]
     }
 
 

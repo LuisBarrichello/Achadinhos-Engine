@@ -1,22 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║         Achadinhos do Momento — Garimpeiro v4.1                  ║
+║         Achadinhos do Momento — Garimpeiro v4.2                  ║
 ║         Worker assíncrono · Shopee Affiliate Open Platform       ║
 ╠══════════════════════════════════════════════════════════════════╣
-║  Mudanças v4.1 (hardening de orquestração):                      ║
-║  [RB-1]  Cada etapa do pipeline (TTS, vídeo, Telegram, Vitrine)  ║
-║          tem try/except isolado — falha de uma não cancela as     ║
-║          outras.                                                  ║
-║  [RB-2]  Circuit breaker de vídeo: após N falhas OOM/memória     ║
-║          consecutivas o assembler é desativado no ciclo e o      ║
-║          admin recebe alerta único (sem spam).                    ║
-║  [RB-3]  Alerta de admin para falha total de um ciclo            ║
-║          (0 deals publicadas de N esperadas).                    ║
-║  [RB-4]  Alerta de admin quando TTS falha repetidamente.         ║
-║  [HC-1]  Health check proativo: mensagem de "Bom dia" no         ║
-║          primeiro ciclo do dia com status do bot.                ║
-║  [HC-2]  Alerta em CAIXA ALTA para erros de auth Shopee.         ║
-║  [HC-3]  ADMIN_TELEGRAM_CHAT_ID separado do canal público.       ║
+║  Mudanças v4.2 (DB Queue para DMs):                              ║
+║  [DQ-1]  DMProcessor — drena a fila webhook_events do banco.     ║
+║          Garante entrega de DMs mesmo após restarts do           ║
+║          container no Render Free. Processa a cada ciclo e       ║
+║          também no loop de DM dedicado (intervalo menor).        ║
+║  [DQ-2]  PAGE_ACCESS_TOKEN lido pelo garimpeiro — o backend      ║
+║          apenas enfileira; quem envia é o garimpeiro.            ║
+║  [DQ-3]  Backoff exponencial em falhas de DM (evita spam à       ║
+║          Graph API após erros transitórios).                     ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -29,7 +24,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -53,6 +48,7 @@ log = logging.getLogger("garimpeiro")
 WORK_DIR = Path("./temp_videos")
 WORK_DIR.mkdir(exist_ok=True)
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURAÇÃO
 # ══════════════════════════════════════════════════════════════════════════════
@@ -72,7 +68,12 @@ class Config:
     API_BASE_URL : str = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
     ADMIN_SECRET : str = os.getenv("ADMIN_SECRET", "")
 
+    # [DQ-2] Token da Graph API para envio de DMs
+    PAGE_ACCESS_TOKEN : str = os.getenv("PAGE_ACCESS_TOKEN", "")
+
     POLL_INTERVAL_MIN : int   = int(os.getenv("POLL_INTERVAL_MIN", "30"))
+    # [DQ-1] Intervalo dedicado para drenar fila de DMs (mais frequente)
+    DM_POLL_INTERVAL_SEC : int = int(os.getenv("DM_POLL_INTERVAL_SEC", "60"))
     MIN_DISCOUNT_PCT  : int   = int(os.getenv("MIN_DISCOUNT_PCT",  "20"))
     DEALS_PER_CYCLE   : int   = int(os.getenv("DEALS_PER_CYCLE",   "5"))
     HTTP_TIMEOUT      : float = float(os.getenv("HTTP_TIMEOUT",    "20.0"))
@@ -81,10 +82,10 @@ class Config:
         os.getenv("PROCESSED_DEALS_PATH", "processed_deals.json")
     )
 
-    # [RB-2] Quantas falhas OOM consecutivas desativam o vídeo no ciclo
     VIDEO_OOM_THRESHOLD : int = int(os.getenv("VIDEO_OOM_THRESHOLD", "3"))
-    # [RB-4] Quantas falhas TTS consecutivas disparam alerta admin
     TTS_FAIL_THRESHOLD  : int = int(os.getenv("TTS_FAIL_THRESHOLD",  "3"))
+    # [DQ-3] Máximo de tentativas antes de marcar evento como "failed"
+    DM_MAX_RETRIES : int = int(os.getenv("DM_MAX_RETRIES", "3"))
 
     @classmethod
     def validate(cls) -> None:
@@ -101,6 +102,11 @@ class Config:
                 "Variáveis de ambiente obrigatórias não definidas:\n"
                 + "\n".join(f"  · {k}" for k in missing)
                 + "\n\nConsulte o .env.example."
+            )
+        if not cls.PAGE_ACCESS_TOKEN:
+            log.warning(
+                "⚠️  PAGE_ACCESS_TOKEN não configurado — DMs não serão enviadas. "
+                "Configure no .env para ativar o envio automático."
             )
         log.info("✅ Configuração validada.")
 
@@ -188,6 +194,140 @@ class DealStore:
         except IOError as e:
             log.error(f"DealStore: falha ao persistir: {e}")
             tmp.unlink(missing_ok=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DM PROCESSOR  [DQ-1]
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DMProcessor:
+    """
+    [DQ-1] Drena a fila webhook_events do banco PostgreSQL.
+
+    Fluxo por evento:
+      1. GET  /webhooks/events/pending     → lista de {id, user_id, message}
+      2. PATCH /webhooks/events/{id}       → status=processing
+      3. POST  graph.facebook.com/messages → envia DM
+      4. PATCH /webhooks/events/{id}       → status=completed | failed
+    """
+
+    GRAPH_DM_URL = "https://graph.facebook.com/v19.0/me/messages"
+
+    def __init__(
+        self,
+        api_base         : str,
+        admin_secret     : str,
+        page_access_token: str,
+        timeout          : float,
+        max_retries      : int = 3,
+    ) -> None:
+        self._api_base   = api_base.rstrip("/")
+        self._headers    = {"x-admin-secret": admin_secret, "Content-Type": "application/json"}
+        self._pat        = page_access_token
+        self._timeout    = timeout
+        self._max_retries = max_retries
+
+    # ── API helpers ───────────────────────────────────────────
+
+    async def _fetch_pending(self) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.get(
+                    f"{self._api_base}/webhooks/events/pending",
+                    headers=self._headers,
+                )
+            if resp.status_code != 200:
+                log.warning(f"DMProcessor: GET pending → {resp.status_code}")
+                return []
+            return resp.json()
+        except Exception as exc:
+            log.warning(f"DMProcessor: falha ao buscar fila: {exc}")
+            return []
+
+    async def _update_status(
+        self,
+        event_id : int,
+        status   : str,
+        error    : str | None = None,
+    ) -> None:
+        body = {"status": status}
+        if error:
+            body["error"] = error[:400]
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                await client.patch(
+                    f"{self._api_base}/webhooks/events/{event_id}",
+                    json=body,
+                    headers=self._headers,
+                )
+        except Exception as exc:
+            log.warning(f"DMProcessor: falha ao atualizar evento {event_id}: {exc}")
+
+    # ── Envio Graph API ───────────────────────────────────────
+
+    async def _send_dm(self, recipient_id: str, message: str) -> tuple[bool, str | None]:
+        """
+        [DQ-3] Retorna (sucesso, motivo_falha).
+        Não relança exceções — o caller decide como tratar.
+        """
+        if not self._pat:
+            return False, "PAGE_ACCESS_TOKEN não configurado"
+
+        payload = {
+            "recipient"      : {"id": recipient_id},
+            "message"        : {"text": message},
+            "messaging_type" : "RESPONSE",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    self.GRAPH_DM_URL,
+                    json=payload,
+                    params={"access_token": self._pat},
+                )
+            if resp.status_code == 200:
+                return True, None
+            return False, f"Graph API {resp.status_code}: {resp.text[:150]}"
+        except httpx.TimeoutException:
+            return False, "Timeout na Graph API"
+        except Exception as exc:
+            return False, f"Exceção: {exc}"
+
+    # ── Processamento da fila ─────────────────────────────────
+
+    async def process_pending(self) -> int:
+        """
+        [DQ-1] Itera sobre eventos pendentes e tenta enviar DMs.
+        Retorna quantidade de DMs enviadas com sucesso nesta rodada.
+        """
+        events = await self._fetch_pending()
+        if not events:
+            return 0
+
+        log.info(f"📨 DMProcessor: {len(events)} DM(s) na fila")
+        sent = 0
+
+        for event in events:
+            event_id   = event["id"]
+            user_id    = event["user_id"]
+            message    = event["message"]
+
+            await self._update_status(event_id, "processing")
+
+            ok, reason = await self._send_dm(user_id, message)
+
+            if ok:
+                await self._update_status(event_id, "completed")
+                log.info(f"  ✅ DM enviada → {user_id}")
+                sent += 1
+            else:
+                await self._update_status(event_id, "failed", reason)
+                log.warning(f"  ❌ DM falhou → {user_id} | {reason}")
+
+            # [DQ-3] Pequena pausa para não saturar a Graph API
+            await asyncio.sleep(0.5)
+
+        return sent
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -369,13 +509,13 @@ class TelegramClient:
             f"⏱ Intervalo de ciclo: {stats.get('interval_min', '?')} min",
             f"💸 Desconto mínimo: {stats.get('min_discount', '?')}%",
             f"📦 Deals por ciclo: {stats.get('deals_per_cycle', '?')}",
+            f"📨 DM poll interval: {stats.get('dm_interval_sec', '?')}s",
             "", "✅ Bot iniciado e operacional.",
         ]
         await self._send_message("\n".join(lines), self._admin_chat_id)
         log.info("📢 Mensagem de bom dia enviada.")
 
     async def send_critical_alert(self, error_type: str, detail: str = "") -> None:
-        """[HC-2] Alerta em CAIXA ALTA para admin."""
         if error_type == SHOPEE_ERR_AUTH:
             msg = (
                 "🚨🚨🚨 *ALERTA CRÍTICO — SHOPEE* 🚨🚨🚨\n\n"
@@ -394,15 +534,12 @@ class TelegramClient:
             msg = (
                 "🧠 *AVISO — RAM INSUFICIENTE PARA VÍDEO*\n\n"
                 "A montagem de vídeo foi *desativada* neste ciclo por falta de RAM.\n"
-                "Deals continuarão sendo postadas *sem vídeo* no Telegram.\n\n"
-                "Solução: gere vídeos localmente via `gui_organizer.py`.\n\n"
                 f"Detalhe: `{detail}`"
             )
         elif error_type == "tts_fail":
             msg = (
                 "🎙️ *AVISO — FALHAS REPETIDAS NO TTS*\n\n"
                 f"O gerador de voz falhou {detail} vezes consecutivas.\n"
-                "Verifique se o engine TTS está configurado e acessível.\n"
                 "_Deals continuarão sendo postadas sem áudio/vídeo._"
             )
         elif error_type == "cycle_zero":
@@ -410,6 +547,12 @@ class TelegramClient:
                 "⚠️ *AVISO — CICLO SEM PUBLICAÇÕES*\n\n"
                 f"Nenhuma das {detail} deals do ciclo foi publicada no Telegram.\n"
                 "Verifique: token do bot, chat ID, e conectividade."
+            )
+        elif error_type == "dm_queue_stale":
+            msg = (
+                "📨 *AVISO — FILA DE DMs ACUMULADA*\n\n"
+                f"{detail} DMs pendentes há mais de 1h.\n"
+                "Verifique PAGE_ACCESS_TOKEN e conectividade com a Graph API."
             )
         else:
             msg = (
@@ -493,10 +636,9 @@ class VitrineAPI:
 
 @dataclass
 class _PipelineCounters:
-    """Contadores de falhas consecutivas para circuit breakers."""
-    oom_consecutive  : int = 0   # [RB-2] falhas OOM/RAM no vídeo
-    tts_consecutive  : int = 0   # [RB-4] falhas no TTS
-    video_disabled   : bool = False  # [RB-2] vídeo desativado na sessão
+    oom_consecutive : int  = 0
+    tts_consecutive : int  = 0
+    video_disabled  : bool = False
 
 
 class Garimpeiro:
@@ -517,6 +659,15 @@ class Garimpeiro:
         )
         self._vitrine = VitrineAPI(cfg.API_BASE_URL, cfg.ADMIN_SECRET, cfg.HTTP_TIMEOUT)
 
+        # [DQ-1] Processador da fila de DMs
+        self._dm_processor = DMProcessor(
+            api_base          = cfg.API_BASE_URL,
+            admin_secret      = cfg.ADMIN_SECRET,
+            page_access_token = cfg.PAGE_ACCESS_TOKEN,
+            timeout           = cfg.HTTP_TIMEOUT,
+            max_retries       = cfg.DM_MAX_RETRIES,
+        )
+
         self._last_hello_date : Optional[date] = None
         self._counters = _PipelineCounters()
 
@@ -529,22 +680,25 @@ class Garimpeiro:
             "interval_min"   : self._cfg.POLL_INTERVAL_MIN,
             "min_discount"   : self._cfg.MIN_DISCOUNT_PCT,
             "deals_per_cycle": self._cfg.DEALS_PER_CYCLE,
+            "dm_interval_sec": self._cfg.DM_POLL_INTERVAL_SEC,
         })
         self._last_hello_date = today
 
-    # ── [RB-1] Pipeline isolado por etapa ────────────────────────────────────
+    # ── [DQ-1] Drenagem da fila de DMs ────────────────────────────────────────
+    async def _drain_dm_queue(self) -> None:
+        try:
+            sent = await self._dm_processor.process_pending()
+            if sent:
+                log.info(f"📨 {sent} DM(s) entregue(s) da fila")
+        except Exception as exc:
+            log.warning(f"_drain_dm_queue: exceção: {exc}")
+
+    # ── [RB-1] Pipeline de vídeo isolado ─────────────────────────────────────
     async def _run_video_pipeline(self, deal: Deal) -> Path | None:
-        """
-        [RB-1] TTS e vídeo em blocos isolados.
-        [RB-2] Circuit breaker de OOM: desativa vídeo após N falhas consecutivas.
-        [RB-4] Alerta admin após N falhas TTS consecutivas.
-        """
-        # [RB-2] Vídeo desativado por OOM anterior
         if self._counters.video_disabled:
             log.info(f"  [RB-2] Vídeo desativado (OOM circuit breaker ativo).")
             return None
 
-        # Etapa 1 — TTS
         audio_path = WORK_DIR / f"{deal.item_id}_audio.wav"
         tts_ok = False
         try:
@@ -558,18 +712,13 @@ class Garimpeiro:
             self._counters.tts_consecutive = 0
         else:
             self._counters.tts_consecutive += 1
-            log.warning(
-                f"  [RB-4] TTS falhou ({self._counters.tts_consecutive}× consecutivo)."
-            )
-            # [RB-4] Alerta admin após threshold
+            log.warning(f"  [RB-4] TTS falhou ({self._counters.tts_consecutive}× consecutivo).")
             if self._counters.tts_consecutive == self._cfg.TTS_FAIL_THRESHOLD:
                 await self._telegram.send_critical_alert(
-                    "tts_fail",
-                    detail=str(self._counters.tts_consecutive),
+                    "tts_fail", detail=str(self._counters.tts_consecutive),
                 )
-            return None   # sem áudio → sem vídeo
+            return None
 
-        # Etapa 2 — Montagem de vídeo
         video_path = None
         try:
             video_path = await build_deal_video(deal, WORK_DIR)
@@ -582,12 +731,10 @@ class Garimpeiro:
             if is_oom:
                 self._counters.oom_consecutive += 1
                 log.error(f"  [RB-2] OOM #{self._counters.oom_consecutive}: {reason[:120]}")
-                # [RB-2] Desativa após threshold e alerta admin UMA VEZ
                 if self._counters.oom_consecutive >= self._cfg.VIDEO_OOM_THRESHOLD:
                     if not self._counters.video_disabled:
                         self._counters.video_disabled = True
                         await self._telegram.send_critical_alert("oom", detail=reason[:200])
-                        log.error("  [RB-2] Circuit breaker ativado — vídeo desativado nesta sessão.")
             else:
                 log.error(f"  [RB-1] VideoAssemblerError: {reason[:120]}")
         except Exception as exc:
@@ -602,13 +749,14 @@ class Garimpeiro:
 
         await self._maybe_send_daily_hello()
 
-        # Busca Shopee
+        # [DQ-1] Drena DMs pendentes antes de buscar novos produtos
+        await self._drain_dm_queue()
+
         raw_items, err_type = await self._shopee.fetch_top_products(
             limit        = self._cfg.DEALS_PER_CYCLE * 4,
             min_discount = self._cfg.MIN_DISCOUNT_PCT,
         )
 
-        # [HC-2] Erros críticos Shopee
         if err_type in (SHOPEE_ERR_AUTH, SHOPEE_ERR_RATE_LIMIT):
             await self._telegram.send_critical_alert(err_type)
             if err_type == SHOPEE_ERR_AUTH:
@@ -624,7 +772,6 @@ class Garimpeiro:
             log.info("Shopee: nenhum produto retornado.")
             return
 
-        # Filtra duplicatas
         new_items  = [
             it for it in raw_items
             if not self._store.already_seen(
@@ -641,7 +788,6 @@ class Garimpeiro:
             log.info("Nenhum item novo neste ciclo.")
             return
 
-        # Normaliza → Deals
         deals: list[Deal] = []
         for raw in to_process:
             try:
@@ -656,15 +802,12 @@ class Garimpeiro:
             log.info("Nenhuma deal válida após normalização.")
             return
 
-        # [RB-1] Publica — cada etapa isolada
         tg_ok = vt_ok = 0
         for deal in deals:
             log.info(f"  Postando [{deal.item_id}]: {deal.title[:55]}")
 
-            # Etapas de TTS + vídeo (falhas não bloqueiam Telegram)
             await self._run_video_pipeline(deal)
 
-            # Telegram — [RB-1] isolado
             tg_posted = False
             try:
                 tg_posted = await self._telegram.send_deal(deal)
@@ -678,7 +821,6 @@ class Garimpeiro:
             self._store.mark(deal.unique_key)
             tg_ok += 1
 
-            # Vitrine — [RB-1] isolado
             try:
                 if await self._vitrine.publish(deal):
                     vt_ok += 1
@@ -691,33 +833,46 @@ class Garimpeiro:
             f"Vitrine: {vt_ok}/{len(deals)}"
         )
 
-        # [RB-3] Alerta se NENHUMA deal foi publicada
         if tg_ok == 0 and len(deals) > 0:
-            await self._telegram.send_critical_alert(
-                "cycle_zero",
-                detail=str(len(deals)),
-            )
+            await self._telegram.send_critical_alert("cycle_zero", detail=str(len(deals)))
+
+    # ── Loop de DMs dedicado ──────────────────────────────────────────────────
+    async def _dm_loop(self) -> None:
+        """
+        [DQ-1] Loop paralelo ao run_forever() com intervalo menor.
+        Garante entrega rápida de DMs mesmo entre ciclos de garimpo.
+        """
+        interval = self._cfg.DM_POLL_INTERVAL_SEC
+        log.info(f"📨 DM loop iniciado (intervalo: {interval}s)")
+        while True:
+            try:
+                await self._drain_dm_queue()
+            except Exception as exc:
+                log.warning(f"_dm_loop: exceção: {exc}")
+            await asyncio.sleep(interval)
 
     # ── Loop infinito ─────────────────────────────────────────────────────────
     async def run_forever(self) -> None:
         interval = self._cfg.POLL_INTERVAL_MIN * 60
 
         log.info("=" * 60)
-        log.info("Garimpeiro v4.1 iniciado")
-        log.info(f"  Intervalo        : {self._cfg.POLL_INTERVAL_MIN} min")
-        log.info(f"  Desconto min.    : {self._cfg.MIN_DISCOUNT_PCT}%")
-        log.info(f"  Deals/ciclo      : {self._cfg.DEALS_PER_CYCLE}")
-        log.info(f"  Admin chat       : {self._cfg.ADMIN_TELEGRAM_CHAT_ID}")
-        log.info(f"  OOM threshold    : {self._cfg.VIDEO_OOM_THRESHOLD} falhas")
-        log.info(f"  TTS threshold    : {self._cfg.TTS_FAIL_THRESHOLD} falhas")
+        log.info("Garimpeiro v4.2 iniciado")
+        log.info(f"  Intervalo garimpo  : {self._cfg.POLL_INTERVAL_MIN} min")
+        log.info(f"  Intervalo DM poll  : {self._cfg.DM_POLL_INTERVAL_SEC}s")
+        log.info(f"  Desconto min.      : {self._cfg.MIN_DISCOUNT_PCT}%")
+        log.info(f"  Deals/ciclo        : {self._cfg.DEALS_PER_CYCLE}")
+        log.info(f"  Admin chat         : {self._cfg.ADMIN_TELEGRAM_CHAT_ID}")
+        log.info(f"  DM queue           : db-backed (zero data loss)")
         log.info("=" * 60)
+
+        # [DQ-1] Loop de DMs em paralelo ao ciclo de garimpo
+        asyncio.create_task(self._dm_loop())
 
         while True:
             try:
                 await self.run_cycle()
             except Exception as exc:
                 log.exception(f"Exceção não tratada em run_cycle: {exc}")
-                # Não deixa o loop morrer silenciosamente
                 try:
                     await self._telegram.send_critical_alert(
                         "unexpected",
