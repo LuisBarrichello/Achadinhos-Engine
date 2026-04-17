@@ -1,3 +1,12 @@
+"""
+bot-telegram/clients/shopee.py — Cliente da API Shopee Affiliate.
+
+[QF] Filtros de qualidade adicionados:
+  - MIN_RATING (padrão 4.5) — filtra produtos mal avaliados
+  - MIN_SOLD   (padrão 1000) — filtra produtos sem histórico de vendas
+  Ambos configuráveis via env vars e aplicados ANTES de qualquer envio.
+"""
+
 import hashlib
 import hmac
 import json
@@ -21,11 +30,23 @@ SHOPEE_ERR_LOGIC      = "logic_error"
 class ShopeeAPI:
     BASE_URL = "https://open-api.affiliate.shopee.com.br"
 
-    def __init__(self, app_id: str, app_secret: str, sub_id: str, timeout: float) -> None:
+    def __init__(
+        self,
+        app_id     : str,
+        app_secret : str,
+        sub_id     : str,
+        timeout    : float,
+        min_rating : float = 4.5,   # [QF]
+        min_sold   : int   = 1000,  # [QF]
+    ) -> None:
         self._app_id     = app_id
         self._app_secret = app_secret.encode("utf-8")
         self._sub_id     = sub_id
         self._timeout    = timeout
+        self._min_rating = min_rating  # [QF]
+        self._min_sold   = min_sold    # [QF]
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
 
     def _build_signature(self, path: str, timestamp: int, body: str = "") -> str:
         base = f"{self._app_id}{timestamp}{path}{body}"
@@ -37,6 +58,58 @@ class ShopeeAPI:
             "timestamp": timestamp,
             "sign"     : self._build_signature(path, timestamp, body),
         }
+
+    # ── [QF] Helpers de qualidade ─────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_rating(item: dict) -> float:
+        """Extrai rating de item raw da Shopee (vários campos possíveis)."""
+        raw = (
+            item.get("item_rating")
+            or item.get("rating_star")
+            or item.get("rating")
+            or item.get("score")
+            or 0.0
+        )
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _extract_sold(item: dict) -> int:
+        """Extrai quantidade vendida de item raw da Shopee."""
+        raw = (
+            item.get("sold")
+            or item.get("historical_sold")
+            or item.get("sales")
+            or item.get("item_sold")
+            or 0
+        )
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    def _passes_quality_filter(self, item: dict) -> bool:
+        """
+        [QF] Retorna True apenas se o item atende rating mínimo e vendas mínimas.
+        Loga o motivo de rejeição para rastreabilidade.
+        """
+        rating = self._extract_rating(item)
+        sold   = self._extract_sold(item)
+
+        title = (item.get("item_name") or item.get("name") or "?")[:40]
+
+        if rating > 0 and rating < self._min_rating:
+            log.debug(f"  [QF] Rejeitado rating={rating:.1f}<{self._min_rating}: {title}")
+            return False
+        if sold > 0 and sold < self._min_sold:
+            log.debug(f"  [QF] Rejeitado sold={sold}<{self._min_sold}: {title}")
+            return False
+        return True
+
+    # ── Fetch principal ───────────────────────────────────────────────────────
 
     async def fetch_top_products(
         self, limit: int = 20, min_discount: int = 0
@@ -70,9 +143,24 @@ class ShopeeAPI:
             or data.get("item_list")
             or []
         )
+
+        total_before = len(items)
+
+        # [QF] Aplica filtro de qualidade ANTES de qualquer envio
+        items = [it for it in items if self._passes_quality_filter(it)]
+        quality_rejected = total_before - len(items)
+
         if min_discount > 0:
             items = [it for it in items if self._extract_discount(it) >= min_discount]
+
+        log.info(
+            f"Shopee: {total_before} brutos | "
+            f"{quality_rejected} rejeitados (QF) | "
+            f"{len(items)} aprovados"
+        )
         return items, None
+
+    # ── Geração de link ───────────────────────────────────────────────────────
 
     async def generate_affiliate_link(self, item_url: str) -> Optional[str]:
         path      = "/v1/link/generate"
@@ -104,6 +192,8 @@ class ShopeeAPI:
             or data.get("short_link")
         )
 
+    # ── Build deal ────────────────────────────────────────────────────────────
+
     async def build_deal(self, raw_item: dict) -> Optional[Deal]:
         item_id = str(raw_item.get("item_id") or raw_item.get("itemid") or "")
         shop_id = str(raw_item.get("shop_id") or raw_item.get("shopid") or "")
@@ -133,16 +223,24 @@ class ShopeeAPI:
         if img and not img.startswith("http"):
             img = "https:" + img
 
+        # [QF] Preserva rating e sold no Deal para exibição no caption
+        rating = self._extract_rating(raw_item) or None
+        sold   = self._extract_sold(raw_item) or None
+
         return Deal(
-            item_id       = item_id,
-            title         = title,
-            affiliate_url = aff_url,
-            price         = price,
-            original_price= orig if orig != price else None,
-            discount_pct  = discount or None,
-            image_url     = img or None,
-            shop_name     = raw_item.get("shop_name") or raw_item.get("shopName") or "",
+            item_id        = item_id,
+            title          = title,
+            affiliate_url  = aff_url,
+            price          = price,
+            original_price = orig if orig != price else None,
+            discount_pct   = discount or None,
+            image_url      = img or None,
+            shop_name      = raw_item.get("shop_name") or raw_item.get("shopName") or "",
+            rating         = rating,  # [QF]
+            sold           = sold,    # [QF]
         )
+
+    # ── Helpers estáticos ─────────────────────────────────────────────────────
 
     @staticmethod
     def _extract_discount(item: dict) -> int:

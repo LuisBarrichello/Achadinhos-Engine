@@ -1,3 +1,10 @@
+"""
+backend/api/routes/webhooks.py
+
+[FIX-6.1] _resolve_dm_message e _keyword_matches agora importados de
+           shared/matching.py — elimina duplicação com frontend/api/webhook.py
+"""
+
 import hashlib
 import hmac
 import json
@@ -19,7 +26,9 @@ from models.domain import (
     WebhookEventRead,
 )
 from services.dm_counter import _increment_dm_today
-from services.matching import _keyword_matches
+
+# [FIX-6.1] Importa do módulo centralizado
+from services.matching import keyword_matches
 
 log = logging.getLogger("achadinhos")
 
@@ -38,6 +47,10 @@ def _enqueue_dm(user_id: str, message: str) -> None:
 
 
 def _resolve_dm_message(raw_text: str) -> Optional[str]:
+    """
+    [FIX-6.1] Usa keyword_matches do módulo centralizado.
+    Lógica idêntica ao frontend/api/webhook.py — sem duplicação.
+    """
     with Session(engine) as session:
         # 1. Links com keyword inline
         links_com_keyword = session.exec(
@@ -47,7 +60,7 @@ def _resolve_dm_message(raw_text: str) -> Optional[str]:
         ).all()
 
         matched_link = next(
-            (lk for lk in links_com_keyword if _keyword_matches(raw_text, lk.keyword)),
+            (lk for lk in links_com_keyword if keyword_matches(raw_text, lk.keyword)),
             None
         )
         if matched_link:
@@ -59,7 +72,7 @@ def _resolve_dm_message(raw_text: str) -> Optional[str]:
         # 2. Tabela legada KeywordLink
         kw_links = session.exec(select(KeywordLink)).all()
         legacy = next(
-            (kl for kl in kw_links if _keyword_matches(raw_text, kl.keyword)),
+            (kl for kl in kw_links if keyword_matches(raw_text, kl.keyword)),
             None
         )
         if legacy:
@@ -69,10 +82,6 @@ def _resolve_dm_message(raw_text: str) -> Optional[str]:
 
 
 def _process_and_enqueue(payload: dict) -> None:
-    """
-    [DQ-1] Resolve fuzzy matching e grava na fila do banco.
-    Executa em < 100ms (apenas leituras e uma escrita no DB).
-    """
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
@@ -117,10 +126,6 @@ def verify_webhook(
 
 @router.post("/webhook/meta")
 async def receive_webhook(request: Request):
-    """
-    [DQ-2] Sem BackgroundTasks — processa síncrono e salva na fila.
-    Retorna 200 em < 500ms (exigência da Meta).
-    """
     body_bytes = await request.body()
 
     if META_APP_SECRET:
@@ -150,10 +155,6 @@ def get_pending_events(
     limit  : int     = 50,
     session: Session = Depends(get_session),
 ):
-    """
-    O garimpeiro chama este endpoint periodicamente.
-    Retorna até `limit` eventos com status 'pending', ordenados por data.
-    """
     return session.exec(
         select(WebhookEvent)
         .where(WebhookEvent.status == "pending")
@@ -172,10 +173,6 @@ def update_event_status(
     data     : EventStatusUpdate,
     session  : Session = Depends(get_session),
 ):
-    """
-    O garimpeiro chama com status='processing' ao iniciar,
-    'completed' em sucesso ou 'failed' em falha.
-    """
     valid = {"pending", "processing", "completed", "failed"}
     if data.status not in valid:
         raise HTTPException(status_code=400, detail=f"status deve ser um de: {valid}")
