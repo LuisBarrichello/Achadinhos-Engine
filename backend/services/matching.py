@@ -10,7 +10,7 @@ def _normalize_keyword(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", ascii_text.upper())
 
 
-def _keyword_matches(comment: str, keyword: str) -> bool:
+def keyword_matches(comment: str, keyword: str) -> bool:
     norm_comment = _normalize_keyword(comment)
     norm_keyword  = _normalize_keyword(keyword)
     if not norm_keyword:
