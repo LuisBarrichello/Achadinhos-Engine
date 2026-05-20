@@ -54,7 +54,7 @@ class GarimpeiroWorker:
         deals = await self._shopee.fetch_top_products(limit=15)
         
         # Filtra ofertas já postadas
-        novas_ofertas = [d for d in deals if not self._store.is_processed(d.item_id)]
+        novas_ofertas = [d for d in deals if not self._store.is_processed(d.fingerprint)]
         
         if not novas_ofertas:
             log.info("[FETCH] Nenhuma oferta nova encontrada.")

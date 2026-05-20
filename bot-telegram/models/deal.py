@@ -6,7 +6,8 @@ bot-telegram/models/deal.py — Modelo de deal com melhorias de caption.
 [QF]      Campos rating e sold para filtros de qualidade
 """
 
-from dataclasses import dataclass, field
+import hashlib
+from dataclasses import dataclass, field, asdict # Adicione o asdict aqui
 from typing import Optional
 import re
 
@@ -70,16 +71,18 @@ def _detect_emojis(title: str) -> str:
 
 @dataclass
 class Deal:
-    item_id        : str
-    title          : str
-    affiliate_url  : str
-    price          : Optional[float]
-    original_price : Optional[float]
-    discount_pct   : Optional[int]
-    image_url      : Optional[str]
-    shop_name      : str = ""
+    item_id: str
+    title: str
+    affiliate_url: str
+    price: Optional[float]
+    original_price: Optional[float]
+    discount_pct: Optional[int]
+    image_url: Optional[str]
+    shop_name: str = ""
     score: float = 0.0
-    original_price: float = None
+    rating: Optional[float] = None
+    sold: Optional[int] = None
+    is_price_bug: bool = False
 
     # [QF] Campos de qualidade — podem ser None se a API não retornar
     rating         : Optional[float] = None
@@ -87,6 +90,23 @@ class Deal:
 
     # [BP] Flag de bug de preço — setada externamente pelo garimpeiro
     is_price_bug   : bool = False
+
+    @property
+    def fingerprint(self) -> str:
+        """
+        Gera uma assinatura única baseada no item E no preço atual.
+        Se o preço cair amanhã, o fingerprint muda e o bot posta de novo!
+        """
+        # Garante que price e discount não sejam None para a string
+        safe_price = f"{self.price:.2f}" if self.price else "0.00"
+        safe_discount = str(self.discount_pct or 0)
+
+        raw_string = f"{self.item_id}_{safe_price}_{safe_discount}"
+        return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
+
+    def to_dict(self) -> dict:
+        """Converte o dataclass para dicionário para salvar no banco"""
+        return asdict(self)
 
     @property
     def unique_key(self) -> str:

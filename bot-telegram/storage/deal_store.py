@@ -11,28 +11,31 @@ class DealStore:
         self._pool = pool.SimpleConnectionPool(1, 5, db_url)
         log.info("DealStore conectado ao PostgreSQL [Ready]")
 
-    def is_processed(self, item_id: str) -> bool:
+    def is_processed(self, fingerprint: str) -> bool:
+        """Agora checa pelo Fingerprint em vez do item_id"""
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM processed_deals WHERE item_id = %s LIMIT 1", (item_id,))
+                cur.execute("SELECT 1 FROM processed_deals WHERE fingerprint = %s LIMIT 1", (fingerprint,))
                 return cur.fetchone() is not None
         finally:
             self._pool.putconn(conn)
 
     def save_deal(self, deal: Deal) -> None:
-        """Salva a oferta E o payload para futuros reposts."""
+        """Salva usando o fingerprint como chave primária"""
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
-                payload = deal.model_dump(mode='json')
+                # Usa o novo método to_dict() criado no Passo 2
+                payload = deal.to_dict()
+
                 query = """
-                    INSERT INTO processed_deals (item_id, processed_at, payload)
-                    VALUES (%s, NOW(), %s)
-                    ON CONFLICT (item_id) DO UPDATE 
+                    INSERT INTO processed_deals (fingerprint, item_id, processed_at, payload)
+                    VALUES (%s, %s, NOW(), %s)
+                    ON CONFLICT (fingerprint) DO UPDATE 
                     SET processed_at = NOW(), payload = EXCLUDED.payload;
                 """
-                cur.execute(query, (deal.item_id, Json(payload)))
+                cur.execute(query, (deal.fingerprint, deal.item_id, Json(payload)))
             conn.commit()
         except Exception as e:
             conn.rollback()

@@ -15,3 +15,17 @@ class TelegramRateLimitError(AchadinhosError):
 class FatalSystemError(AchadinhosError):
     """Erro irrecuperável (Abortar)"""
     pass
+
+class ShopeeAPIError(AchadinhosError):
+    """Erro base da integração Shopee"""
+    pass
+
+class ShopeeAuthError(ShopeeAPIError):
+    """Assinatura HMAC inválida ou App ID incorreto"""
+    pass
+
+class ShopeeRateLimitError(ShopeeAPIError):
+    """Quota excedida na API GraphQL da Shopee"""
+    def __init__(self, retry_after: int = 60):
+        self.retry_after = retry_after
+        super().__init__(f"Shopee Rate Limit. Retry after {retry_after}s")
