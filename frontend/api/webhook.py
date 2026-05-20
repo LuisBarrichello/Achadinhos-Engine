@@ -23,7 +23,10 @@ import os
 import re
 import time
 import unicodedata
+import psycopg2
 from urllib.parse import urlparse, parse_qs
+
+DB_URL = os.getenv("DATABASE_URL")
 
 _CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -179,34 +182,61 @@ class handler(BaseHTTPRequestHandler):
         self._write_json({"error": "Token inválido"}, 403)
 
     def do_POST(self):
-        """Recebe evento Meta e enfileira DMs."""
-        length     = int(self.headers.get("Content-Length", 0))
-        body_bytes = self.rfile.read(length)
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        payload = json.loads(post_data.decode('utf-8'))
 
-        # Valida assinatura (opcional mas recomendado)
-        if META_APP_SECRET:
-            sig = self.headers.get("x-hub-signature-256", "")
-            expected = "sha256=" + hmac.new(
-                META_APP_SECRET.encode(), body_bytes, hashlib.sha256
-            ).hexdigest()
-            if not hmac.compare_digest(sig, expected):
-                self._write_json({"error": "Assinatura inválida"}, 403)
+        try:
+            # 1. Extração segura do ID Único do comentário da Meta
+            entry = payload.get("entry", [])[0]
+            change = entry.get("changes", [])[0]
+            value = change.get("value", {})
+
+            comment_id = value.get("id") # Este é o external_event_id
+            user_id = value.get("from", {}).get("id")
+            message = value.get("text", "")
+
+            if not comment_id or not user_id:
+                self._send_response(200, "Ignored: Missing data")
                 return
 
-        try:
-            payload = json.loads(body_bytes)
-        except json.JSONDecodeError:
-            self._write_json({"error": "Payload inválido"}, 400)
-            return
+            self._enqueue_dm(user_id, comment_id, message)
+            self._send_response(200, "OK") # Retorna 200 IMEDIATO para a Meta
 
-        try:
-            enqueued = _process_payload(payload)
-        except Exception as exc:
-            # Retorna 200 mesmo em erro interno — Meta não deve punir falha de DB
-            self._write_json({"status": "ok", "warning": str(exc)[:200]})
-            return
+        except Exception as e:
+            print(f"Erro no webhook: {e}")
+            # Sempre retorne 200 para a Meta, ou ela banirá seu webhook
+            self._send_response(200, "Processed with internal error")
 
-        self._write_json({"status": "ok", "enqueued": enqueued})
+    def _enqueue_dm(self, user_id: str, external_event_id: str, message: str) -> None:
+        """
+        Conexão Serverless-Safe: Abre, executa com idempotência, e fecha.
+        """
+        conn = None
+        try:
+            conn = psycopg2.connect(DB_URL)
+            with conn.cursor() as cur:
+                # O Segredo da Idempotência: ON CONFLICT DO NOTHING
+                query = """
+                    INSERT INTO webhook_events (user_id, external_event_id, message, status, created_at)
+                    VALUES (%s, %s, %s, 'pending', NOW())
+                    ON CONFLICT (external_event_id) DO NOTHING;
+                """
+                cur.execute(query, (user_id, external_event_id, message))
+            conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
+
+    def _send_response(self, code: int, text: str):
+        self.send_response(code)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"status": text}).encode('utf-8'))
 
     def log_message(self, *args):
         pass
