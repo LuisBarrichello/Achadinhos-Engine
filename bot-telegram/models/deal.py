@@ -78,6 +78,8 @@ class Deal:
     discount_pct   : Optional[int]
     image_url      : Optional[str]
     shop_name      : str = ""
+    score: float = 0.0
+    original_price: float = None
 
     # [QF] Campos de qualidade — podem ser None se a API não retornar
     rating         : Optional[float] = None
