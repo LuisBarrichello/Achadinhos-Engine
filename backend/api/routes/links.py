@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
-from api.dependencies import _rate_limit_click, verify_admin
+from core.security import _rate_limit_click, verify_admin_secure
 from core.database import get_session
 from models.domain import Link, LinkCreate, LinkRead
 
@@ -18,7 +18,7 @@ def list_links(session: Session = Depends(get_session)):
     ).all()
 
 
-@router.post("/links", response_model=LinkRead, dependencies=[Depends(verify_admin)])
+@router.post("/links", response_model=LinkRead, dependencies=[Depends(verify_admin_secure)])
 def create_link(data: LinkCreate, session: Session = Depends(get_session)):
     if data.keyword:
         existing = session.exec(
@@ -37,7 +37,7 @@ def create_link(data: LinkCreate, session: Session = Depends(get_session)):
     return link
 
 
-@router.patch("/links/{link_id}", response_model=LinkRead, dependencies=[Depends(verify_admin)])
+@router.patch("/links/{link_id}", response_model=LinkRead, dependencies=[Depends(verify_admin_secure)])
 def update_link(link_id: int, data: LinkCreate, session: Session = Depends(get_session)):
     link = session.get(Link, link_id)
     if not link:
@@ -60,7 +60,7 @@ def update_link(link_id: int, data: LinkCreate, session: Session = Depends(get_s
     return link
 
 
-@router.delete("/links/{link_id}", dependencies=[Depends(verify_admin)])
+@router.delete("/links/{link_id}", dependencies=[Depends(verify_admin_secure)])
 def delete_link(link_id: int, session: Session = Depends(get_session)):
     link = session.get(Link, link_id)
     if not link:

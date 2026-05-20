@@ -12,11 +12,6 @@ _CLICK_CACHE_CLEANUP_EVERY = 500
 _click_cache_inserts       = 0
 
 
-def verify_admin(x_admin_secret: str = Header(...)) -> None:
-    if not hmac.compare_digest(x_admin_secret.encode(), ADMIN_SECRET.encode()):
-        raise HTTPException(status_code=403, detail="Não autorizado")
-
-
 def _rate_limit_click(request: Request, link_id: int) -> bool:
     global _click_cache_inserts
     client_ip = request.client.host if request.client else "unknown"

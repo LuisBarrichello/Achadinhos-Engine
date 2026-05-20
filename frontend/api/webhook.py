@@ -1,20 +1,3 @@
-"""
-frontend/api/webhook.py — Vercel Serverless Function
-=====================================================
-Recebe eventos do Instagram/Meta e salva na tabela
-webhook_events do Neon diretamente.
-
-Benefícios vs. Render FastAPI:
-  - Resposta em < 50ms (sem cold start)
-  - Meta nunca desabilita o webhook por timeout
-  - Render FastAPI pode hibernar sem impacto
-
-Env vars necessárias (Vercel):
-  DATABASE_URL          — PostgreSQL (Neon/Supabase)
-  WEBHOOK_VERIFY_TOKEN  — token de verificação da Meta
-  META_APP_SECRET       — app secret para validar assinatura (opcional)
-"""
-
 from http.server import BaseHTTPRequestHandler
 import hashlib
 import hmac
@@ -37,7 +20,7 @@ _CORS = {
 WEBHOOK_VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "")
 META_APP_SECRET      = os.environ.get("META_APP_SECRET", "")
 DATABASE_URL         = os.environ.get("DATABASE_URL", "")
-
+MAX_PAYLOAD_SIZE = 1024 * 100
 
 # ── Normalização de keyword (espelho do main.py) ──────────────────────────
 def _normalize_keyword(text: str) -> str:
@@ -182,17 +165,28 @@ class handler(BaseHTTPRequestHandler):
         self._write_json({"error": "Token inválido"}, 403)
 
     def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
+        content_length = int(self.headers.get('Content-Length', 0))
+
+        # Proteção: Rejeitar payloads maliciosamente grandes
+        if content_length > MAX_PAYLOAD_SIZE:
+            self._send_response(413, "Payload Too Large")
+            return
+
         post_data = self.rfile.read(content_length)
-        payload = json.loads(post_data.decode('utf-8'))
+        signature = self.headers.get('x-hub-signature-256', '')
+
+        # Proteção P0: Spoofing & Integridade
+        if not self._verify_meta_signature(post_data, signature):
+            self._send_response(401, "Unauthorized: Invalid Signature")
+            return
 
         try:
-            # 1. Extração segura do ID Único do comentário da Meta
+            payload = json.loads(post_data.decode('utf-8'))
             entry = payload.get("entry", [])[0]
             change = entry.get("changes", [])[0]
             value = change.get("value", {})
 
-            comment_id = value.get("id") # Este é o external_event_id
+            comment_id = value.get("id")  # Funciona como Nonce/Idempotency Key
             user_id = value.get("from", {}).get("id")
             message = value.get("text", "")
 
@@ -201,11 +195,11 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             self._enqueue_dm(user_id, comment_id, message)
-            self._send_response(200, "OK") # Retorna 200 IMEDIATO para a Meta
+            self._send_response(200, "OK")
 
         except Exception as e:
-            print(f"Erro no webhook: {e}")
-            # Sempre retorne 200 para a Meta, ou ela banirá seu webhook
+            # Nunca exponha o erro real pro mundo exterior
+            print(f"Erro processando webhook: {e}")
             self._send_response(200, "Processed with internal error")
 
     def _enqueue_dm(self, user_id: str, external_event_id: str, message: str) -> None:
@@ -240,3 +234,24 @@ class handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass
+
+    def _verify_meta_signature(self, payload_body: bytes, signature_header: str) -> bool:
+        """Proteção P0: Valida se o request realmente veio dos servidores da Meta."""
+        if not META_APP_SECRET or not signature_header:
+            return False
+
+        # O header vem no formato: "sha256=HASH..."
+        if not signature_header.startswith("sha256="):
+            return False
+
+        expected_hash = signature_header.split("sha256=")[1]
+
+        # Calcula o HMAC-SHA256 do body raw usando o App Secret
+        calculated_hash = hmac.new(
+            META_APP_SECRET.encode('utf-8'),
+            payload_body,
+            hashlib.sha256
+        ).hexdigest()
+
+        # Comparação constante de tempo (Previne Timing Attacks)
+        return hmac.compare_digest(expected_hash, calculated_hash)

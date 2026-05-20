@@ -15,7 +15,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
-from api.dependencies import verify_admin
+from core.security import verify_admin_secure
 from core.config import META_APP_SECRET, WEBHOOK_VERIFY_TOKEN
 from core.database import engine, get_session
 from models.domain import (
@@ -148,7 +148,7 @@ async def receive_webhook(request: Request):
 @router.get(
     "/webhooks/events/pending",
     response_model=List[WebhookEventRead],
-    dependencies=[Depends(verify_admin)],
+    dependencies=[Depends(verify_admin_secure)],
     summary="[DQ-1] Retorna DMs pendentes para o garimpeiro processar",
 )
 def get_pending_events(
@@ -165,7 +165,7 @@ def get_pending_events(
 
 @router.patch(
     "/webhooks/events/{event_id}",
-    dependencies=[Depends(verify_admin)],
+    dependencies=[Depends(verify_admin_secure)],
     summary="[DQ-1] Atualiza status de um evento da fila",
 )
 def update_event_status(
