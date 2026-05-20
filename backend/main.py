@@ -15,7 +15,7 @@ app = FastAPI(title="Achadinhos do Momento API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_ORIGIN, "http://localhost:5500", "http://localhost:3000"],
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
