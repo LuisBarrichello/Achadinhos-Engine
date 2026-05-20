@@ -11,9 +11,9 @@ from core.database import engine, get_session
 from models.domain import SystemStatus, WebhookEvent
 from services.dm_counter import _dm_count_today
 
-log = logging.getLogger("achadinhos")
+log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["system"])
+router = APIRouter()
 
 # backend/api/routes/system.py → três níveis acima = backend/
 _BACKEND_DIR = Path(__file__).parent.parent.parent
@@ -74,3 +74,40 @@ def painel_admin():
     if not caminho_admin.exists():
         raise HTTPException(status_code=404, detail="admin.html não encontrado em static/.")
     return FileResponse(caminho_admin)
+
+@router.get("/health", tags=["System"])
+def liveness_check():
+    """Liveness Probe: A API está rodando? Se falhar, o Docker reinicia o container."""
+    return {"status": "alive"}
+
+@router.get("/readiness", tags=["System"])
+def readiness_check(response: Response):
+    """
+    Readiness Probe: As dependências estão online?
+    Se falhar, o Nginx/LoadBalancer para de mandar tráfego para cá.
+    """
+    components = {"postgres": "down", "redis": "down"}
+    is_ready = True
+
+    # Check Postgres
+    try:
+        conn = psycopg2.connect(settings.DATABASE_URL, connect_timeout=3)
+        conn.close()
+        components["postgres"] = "up"
+    except Exception as e:
+        log.error(f"Readiness falhou (Postgres): {e}")
+        is_ready = False
+
+    # Check Redis
+    try:
+        r = redis.from_url(settings.REDIS_URL, socket_timeout=3)
+        if r.ping():
+            components["redis"] = "up"
+    except Exception as e:
+        log.error(f"Readiness falhou (Redis): {e}")
+        is_ready = False
+
+    if not is_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return {"status": "ready" if is_ready else "degraded", "components": components}

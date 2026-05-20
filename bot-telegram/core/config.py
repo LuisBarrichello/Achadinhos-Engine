@@ -1,17 +1,8 @@
-"""
-bot-telegram/core/config.py — Configuração central do Garimpeiro.
-
-Novos parâmetros:
-  [QF]  MIN_RATING, MIN_SOLD          — filtros de qualidade do produto
-  [RP]  REPOST_DAYS, REPOST_MAX       — dias e quantidade de reposts
-  [TTL] DEAL_TTL_DAYS                 — TTL do processed_deals.json
-  [BP]  PRICE_BUG_THRESHOLD           — limiar de bug de preço
-"""
-
 import logging
 import os
 from pathlib import Path
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -93,3 +84,31 @@ class Config:
             f"sold≥{cls.MIN_SOLD} TTL={cls.DEAL_TTL_DAYS}d "
             f"bug_threshold={cls.PRICE_BUG_THRESHOLD}%"
         )
+
+
+class Settings(BaseSettings):
+    ENVIRONMENT: str = "production"  # dev, staging, prod
+
+    # Database
+    DATABASE_URL: str
+
+    # Redis (Para Rate Limit e Cache)
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Meta / Instagram
+    WEBHOOK_VERIFY_TOKEN: str
+    META_APP_SECRET: str
+    PAGE_ACCESS_TOKEN: str
+
+    # Segurança
+    ADMIN_SECRET: str
+    FRONTEND_ORIGIN: str = "http://localhost:3000"
+
+    # Observabilidade
+    SENTRY_DSN: Optional[str] = None
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+# Falha instantaneamente se as vars obrigatórias não estiverem no .env
+settings = Settings()

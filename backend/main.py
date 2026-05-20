@@ -7,7 +7,19 @@ from api.routes.links import router as links_router
 from api.routes.system import router as system_router
 from api.routes.webhooks import router as webhooks_router
 from core.config import FRONTEND_ORIGIN
+
+import logging
+import sentry_sdk
+from core.config import settings
 from core.database import lifespan
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.ENVIRONMENT,
+        traces_sample_rate=0.2, # Em prod, capture apenas 20% das transações normais
+        profiles_sample_rate=0.2,
+    )
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Achadinhos do Momento API", lifespan=lifespan)
